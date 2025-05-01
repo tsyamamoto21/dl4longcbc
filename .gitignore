@@ -4,6 +4,7 @@ bin/
 build/
 config/
 data/
+data
 figure/
 note/
 notebook/
