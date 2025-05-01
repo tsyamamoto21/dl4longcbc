@@ -1,0 +1,9 @@
+.DS_Store
+.vscode/
+bin/
+build/
+config/
+data/
+figure/
+note/
+notebook/
