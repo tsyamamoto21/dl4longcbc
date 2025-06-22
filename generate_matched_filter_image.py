@@ -6,7 +6,7 @@ from astropy.cosmology import Planck18 as cosmo
 from astropy.cosmology import z_at_value
 from astropy.units import Mpc
 from pycbc.waveform import get_fd_waveform, get_td_waveform
-from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta
+from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta, mchirp_from_mass1_mass2
 from pycbc.filter import highpass, matched_filter
 from pycbc.psd import interpolate, inverse_spectrum_truncation
 from pycbc.psd.analytical import aLIGOZeroDetHighPower
@@ -31,9 +31,11 @@ def main(args):
     ndata = args.ndata
 
     # Strain parameters
+    # ifonamelist = ['H1', 'L1']
+    # ifodict = {ifoname: Detector(ifoname) for ifoname in ifonamelist}
     ifo_name = 'H1'
     ifo = Detector(ifo_name)
-    fs = 4096
+    fs = 2048
     dt = 1.0 / fs
     duration = 32
     tcoalescence = duration / 2
@@ -61,14 +63,18 @@ def main(args):
     # Waveform parameters
     approximant = 'IMRPhenomD'
     mcmin_src, mcmax_src = 50.0, 200.0
-    dlmin, dlmax = 0.3, 2.0
+    dlmin, dlmax = 0.3, 2.0  # Gpc
+    # MDC-1 setting is employed here.
+    # dlcmin, dlcmax = 0.130, 0.350  # Gpc
+    # m1min, m1max = 10.0, 50.0
+    # mc0 = mchirp_from_mass1_mass2(1.4, 1.4)
 
     def pdf_dl(x):
         return 3.0 * x**2 / (dlmax**3 - dlmin**3)
 
     # Template
     approximant_tmp = 'IMRPhenomD'
-    mcmin_tmp = 50.0
+    mcmin_tmp = 8.0
     mcmax_tmp = 500.0
     ngrid_mc = 128
     mclist = np.logspace(np.log10(mcmin_tmp), np.log10(mcmax_tmp), ngrid_mc, endpoint=True)
@@ -95,6 +101,11 @@ def main(args):
             eta = 0.25
             m1 = mass1_from_mchirp_eta(mc, eta)
             m2 = mass2_from_mchirp_eta(mc, eta)
+            # m1 = np.random.uniform(m1min, m1max)
+            # m2 = np.random.uniform(m1min, m1max)
+            if m1 < m2:
+                m1, m2 = m2, m1
+            mc = mchirp_from_mass1_mass2(m1, m2)
             a1 = 0.0
             a2 = 0.0
             dec = np.arcsin(np.random.uniform(-1, 1))
@@ -103,6 +114,8 @@ def main(args):
             inclination = np.arcsin(np.random.uniform(-1.0, 1.0))
             phi0 = np.random.uniform(0.0, 2.0 * np.pi)
             distance = rejection_sampling(pdf_dl, dlmin, dlmax) * 1000.0
+            # dlc = rejection_sampling(pdf_dl, dlcmin, dlcmax) * 1000.0
+            # distance = dlc * ((mc / mc0)**(5.0 / 6.0))
             z = z_at_value(cosmo.luminosity_distance, distance * Mpc)
             params = {
                 'approximant': approximant,
