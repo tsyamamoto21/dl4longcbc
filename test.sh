@@ -4,10 +4,8 @@
 #PBS -A ML4GW
 #PBS -l elapstim_req=01:00:00
 #PBS -v OMP_NUM_THREADS=24
-#PBS -o log/out_test.out
-#PBS -e log/err_test.err
-#PBS -m e
-#PBS -M yamamoto.s.takahiro@resceu.s.u-tokyo.ac.jp
+#PBS -o log/test.out
+#PBS -e log/test.out
 
 #------- Program execution -------
 module load python

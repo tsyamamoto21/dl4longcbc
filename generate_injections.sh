@@ -2,8 +2,8 @@
 #PBS -l elapstim_req=20:00:00
 #PBS -q gpu
 #PBS -A ML4GW
-#PBS -o generate_injections.out
-#PBS -e generate_injections.out
+#PBS -o log/generate_injections.out
+#PBS -e log/generate_injections.out
 
 DATASETTYPE=4
 SEEDNUMBER=256
@@ -24,4 +24,4 @@ apptainer exec --nv --bind `pwd` dl4longcbc.sif ./mdc/generate_data.py\
 	--duration $DURATION\
 	--verbose
 cp generate_injections.sh $OUTPUTDIR
-cp generate_injections.out $OUTPUTDIR
+cp log/generate_injections.out $OUTPUTDIR
