@@ -2,6 +2,7 @@
 import h5py
 import torch
 import numpy as np
+from scipy.signal.windows import tukey
 from pycbc.types import load_timeseries
 import pycbc.psd
 from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta
@@ -14,8 +15,9 @@ def make_snrmap_coarse(snrmap, kfilter):
     ny_coarse = ny // kfilter
     snrmap_coarse = torch.zeros((nc, nx, ny_coarse), dtype=torch.float32)
     for i in range(ny_coarse):
-        snrmap_coarse[:, i] = torch.mean(snrmap[:, :, i * kfilter: (i + 1) * kfilter], dim=1)
+        snrmap_coarse[:, :, i] = torch.sqrt(torch.mean(snrmap[:, :, i * kfilter: (i + 1) * kfilter]**2, dim=-1))
     return snrmap_coarse
+
 
 # Dataset directory
 datadir = './data/mdc/ds1_2/'
@@ -27,6 +29,7 @@ fhigh = fs / 2
 low_frequency_cutoff = 20.0
 fftlength = int(4 * fs)
 overlap_length = int(fftlength / 2)
+window = tukey(int(duration * fs), alpha=1.0 / 16.0)
 
 approximant_tmp = 'IMRPhenomXPHM'
 mcmin_tmp = 5.0
@@ -50,7 +53,7 @@ for i in range(ngrid_mc):
     mass1 = mass1_from_mchirp_eta(mclist[i], eta)
     mass2 = mass2_from_mchirp_eta(mclist[i], eta)
     params_tmp = {
-        'approximant': 'IMRPhenomD',
+        'approximant': approximant_tmp,
         'mass1': mass1,
         'mass2': mass2,
         'spin1z': 0.0,
@@ -83,7 +86,7 @@ for idx in range(len(tclist_from_hdf5)):
 
 # Run the main code
 # snrlist = np.zeros((ngrid_mc, int(duration * fs)), dtype=np.float64)
-snrlist = torch.zeros((2, ngrid_mc, int(duration * fs)), dtype=torch.float32, requires_grad=False)
+snrlist = torch.zeros((2, ngrid_mc, int(duration * fs)), requires_grad=False)
 dataidx = 0
 for n in range(nsegment):
     # Set time stampes
@@ -107,9 +110,9 @@ for n in range(nsegment):
         tfin = tc + duration / 2
         if (start_time < tini) and (tfin < end_time):
             print(tc)
-            # Slice the data
-            strain_h = xh1.time_slice(tini, tfin)
-            strain_l = xl1.time_slice(tini, tfin)
+            # Slice the data and window
+            strain_h = xh1.time_slice(tini, tfin) * window
+            strain_l = xl1.time_slice(tini, tfin) * window
 
             # Calculate SNR
             # rholist = []
@@ -117,15 +120,13 @@ for n in range(nsegment):
                 rho_h = matched_filter(template_bank[i], strain_h, psd=psd_h_interp, low_frequency_cutoff=low_frequency_cutoff)
                 rho_l = matched_filter(template_bank[i], strain_l, psd=psd_l_interp, low_frequency_cutoff=low_frequency_cutoff)
                 # snrlist[i] = torch.from_numpy(((abs(rho_h)**2 + abs(rho_l)**2) ** 0.5).numpy().astype(np.float32))
-                snrlist[0, i] = torch.from_numpy(abs(rho_h).numpy().astype(np.float32))
-                snrlist[1, i] = torch.from_numpy(abs(rho_l).numpy().astype(np.float32))
+                snrlist[0, i] = torch.from_numpy(abs(rho_h).numpy())
+                snrlist[1, i] = torch.from_numpy(abs(rho_l).numpy())
 
             # save the data
             # with open(f'{datadir}/inputs_{dataidx:d}.pkl', 'wb') as fo:
             #     pickle.dump(snrlist, fo)
             # np.save(f'{datadir}/inputs_{dataidx:d}.npy', snrlist)
-            torch.save(snrlist, f'{datadir}/inputs_{int(duration):d}_{dataidx:d}.pth')
+            dataavg = make_snrmap_coarse(snrlist, 16).to(torch.float32)
+            torch.save(dataavg, f'{datadir}/inputs_{int(duration):d}_{dataidx:d}.pth')
             dataidx += 1
-            if dataidx == 10:
-                import sys
-                sys.exit()
