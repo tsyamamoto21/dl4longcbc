@@ -6,8 +6,8 @@
 #PBS -e log/generate_injections.out
 
 DATASETTYPE=1
-SEEDNUMBER=512
-OUTPUTDIR=data/mdc/ds1_val/
+SEEDNUMBER=2048
+OUTPUTDIR=data/mdc/ds1_test/
 OUTPUT_INJECTION_FILE=$OUTPUTDIR/injection.hdf
 OUTPUT_FOREGROUND_FILE=$OUTPUTDIR/foreground.hdf
 DURATION=2592000
