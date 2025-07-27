@@ -41,7 +41,7 @@ def main(args):
         RandomCrop((input_height, input_width))
     )
     nb = args.batchsize
-    inputpaths, labels = make_pathlist_and_labellist(f'{datadir}/test/', ['noise'], [0])
+    inputpaths, labels = make_pathlist_and_labellist(f'{datadir}/', ['noise'], [0])
     dataset = LabelDataset(inputpaths, labels, transform=transforms)
     dataloader = DataLoader(dataset, batch_size=nb, shuffle=False, drop_last=False, num_workers=8)
     ndata = len(inputpaths)

@@ -6,11 +6,12 @@
 #PBS -e log/generate_injections_val.out
 
 DATASETTYPE=1
-SEEDNUMBER=256
-OUTPUTDIR=data/largesnr/ds1_val/
-OUTPUT_INJECTION_FILE=$OUTPUTDIR/injection.hdf
-OUTPUT_FOREGROUND_FILE=$OUTPUTDIR/foreground.hdf
-DURATION=259200
+SEEDNUMBER=1024
+OUTPUTDIR=data/largesnr/ds1_test_noise/
+#OUTPUT_INJECTION_FILE=$OUTPUTDIR/injection.hdf
+#OUTPUT_FOREGROUND_FILE=$OUTPUTDIR/foreground.hdf
+OUTPUT_BACKGROUND_FILE=$OUTPUTDIR/foreground.hdf
+DURATION=2592000
 
 set -x
 module load cuda/12.1.0
@@ -18,8 +19,7 @@ module load cuda/12.1.0
 cd $PBS_O_WORKDIR
 apptainer exec --nv --bind `pwd` dl4longcbc.sif ./mdc/generate_data.py\
 	-d $DATASETTYPE\
-	-i $OUTPUT_INJECTION_FILE\
-	-f $OUTPUT_FOREGROUND_FILE\
+    -b $OUTPUT_BACKGROUND_FILE\
 	-s $SEEDNUMBER\
 	--duration $DURATION\
 	--verbose
