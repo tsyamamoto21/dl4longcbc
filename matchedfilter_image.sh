@@ -6,20 +6,17 @@
 #PBS -o log/mfimage_noise/log
 #PBS -t 0-3
 
-INJECTION_FILE=data/largesnr/ds1_val/injection.hdf
-FOREGROUND_FILE=data/largesnr/ds1_val/foreground.hdf
-NSTART=$(($PBS_SUBREQNO * 3))
-NEND=$(($PBS_SUBREQNO * 3 + 3))
+INJECTION_FILE=data/largesnr/ds1_test_cbc/injection.hdf
+FOREGROUND_FILE=data/largesnr/ds1_test_cbc/foreground.hdf
+#NSTART=$(($PBS_SUBREQNO * 3))
+#NEND=$(($PBS_SUBREQNO * 3 + 3))
 
 set -x
-module load cuda/12.1.0
-cd $PBS_O_WORKDIR
-pwd
-apptainer exec --bind `pwd` dl4longcbc.sif ./use_mdc_generate_matchedfilter_image.py\
-	--outdir=data/dataset_250716/validate/noise\
+#module load cuda/12.1.0
+#cd $PBS_O_WORKDIR
+#pwd
+apptainer exec --bind /home,/mnt dl4longcbc.sif ./use_mdc_generate_matchedfilter_image.py\
+	--outdir=data/dataset_250729/test/cbc\
 	--foreground=$FOREGROUND_FILE\
 	--injection=$INJECTION_FILE\
-    --nstart=$NSTART\
-    --nend=$NEND\
-    --offevent
 
