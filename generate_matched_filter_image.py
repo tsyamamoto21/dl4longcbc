@@ -20,7 +20,7 @@ import concurrent.futures
 
 
 INJECTION_TIME_STEP = 24
-NINJECTION_PER_FILE = 10000
+NINJECTION_PER_FILE = 1000
 
 
 def make_snrmap_coarse(snrmap, kfilter):
@@ -177,7 +177,6 @@ def main(args):
     else:
         label = 'cbc'
     if_not_exist_makedir(f'{outdir}/{label}')
-    gps_start_time = args.starttime
 
     # Strain parameters
     ifonamelist = ['H1', 'L1']
@@ -231,8 +230,9 @@ def main(args):
         template_bank.append(hp_fd)
 
     # Create injection parameters
+    gps_start_time = args.starttime
     for n in range(ninjfile):
-        injection_file = f'{args.outdir}/{label}/injections_{n:d}.hdf'
+        injection_file = f'{args.outdir}/{label}/injections_{n + args.offset:d}.hdf'
         if n == ninjfile - 1:
             if ndata % NINJECTION_PER_FILE == 0:
                 nsample = NINJECTION_PER_FILE
@@ -240,13 +240,19 @@ def main(args):
                 nsample = int(ndata % NINJECTION_PER_FILE)
         else:
             nsample = NINJECTION_PER_FILE
-        create_injections(nsample, args.config, gps_start_time, args.seed, injection_file, force=True)
+        create_injections(nsample, args.config, gps_start_time, args.seed + n + args.offset, injection_file, force=args.force)
+        gps_start_time += nsample * INJECTION_TIME_STEP
 
     # Calculate SNR
-    with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
-        futures = [executor.submit(calculate_snr, injection_file, psd_analytic, sp, ifodict) for n in range(ninjfile)]
-        results = [f.result() for f in futures]
-    print('SNR calculation: ', results)
+    snrcalculate_list = []
+    for n in range(ninjfile):
+        if not os.path.exists(f'{args.outdir}/{label}/snrlist_{n + args.offset:d}.hdf'):
+            snrcalculate_list.append(n + args.offset)
+    if len(snrcalculate_list) != 0:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
+            futures = [executor.submit(calculate_snr, f'{args.outdir}/{label}/injections_{n:d}.hdf', psd_analytic, sp, ifodict) for n in snrcalculate_list]
+            results = [f.result() for f in futures]
+        print('SNR calculation: ', results)
 
     # Generate matched filter images
     if args.parameteronly:
@@ -255,7 +261,7 @@ def main(args):
         # def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: list, sp: SignalProcessingParameters, psd, detectors: dict, noiseonly=False):
         # Run the main code
         with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
-            futures = [executor.submit(generate_matchedfilter_image, f'{outdir}/{label}/', n, template_bank, sp, psd_analytic, ifodict, args.noiseonly) for n in range(ninjfile)]
+            futures = [executor.submit(generate_matchedfilter_image, f'{outdir}/{label}/', n, template_bank, sp, psd_analytic, ifodict, args.noiseonly) for n in range(args.offset, args.offset + ninjfile)]
             results = [f.result() for f in futures]
         print('Generate matched filter images: ', results)
 
@@ -270,5 +276,7 @@ if __name__ == '__main__':
     parser.add_argument('--starttime', type=int, help='Injection start GPS time.')
     parser.add_argument('--noiseonly', action='store_true', help='If true, no GW signal are injected.')
     parser.add_argument('--parameteronly', action='store_true', help='If true, no foreground is generated.')
+    parser.add_argument('--force', action='store_true')
+    parser.add_argument('--offset', type=int, default=0)
     args = parser.parse_args()
     main(args)
