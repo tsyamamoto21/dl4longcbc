@@ -20,7 +20,7 @@ import concurrent.futures
 
 
 INJECTION_TIME_STEP = 24
-NINJECTION_PER_FILE = 500
+NINJECTION_PER_FILE = 1000
 
 
 def make_snrmap_coarse(snrmap, kfilter):
@@ -63,7 +63,7 @@ class SignalProcessingParameters:
         self.width_before_smearing = self.kcrop_right - self.kcrop_left
 
 
-def create_injections(nsample: int, config: str, gps_start_time: int, seed: int, injection_file: str, force: bool = False):
+def create_injections(nsample: int, config: str, gps_start_time: int, injection_file: str, force: bool = False):
     gps_end_time = nsample * INJECTION_TIME_STEP + gps_start_time
     cmd = ['pycbc_create_injections']
     cmd += ['--config-files', config]
@@ -71,7 +71,7 @@ def create_injections(nsample: int, config: str, gps_start_time: int, seed: int,
     cmd += ['--gps-end-time', str(gps_end_time)]
     cmd += ['--time-step', str(INJECTION_TIME_STEP)]
     cmd += ['--time-window', str(0)]
-    cmd += ['--seed', str(seed)]
+    # cmd += ['--seed', str(seed)]
     cmd += ['--output-file', injection_file]
     if force:
         cmd += ['--force']
@@ -129,7 +129,7 @@ def calculate_snr(injection_file: str, psd, sp: SignalProcessingParameters, dete
         pickle.dump(storedata, f)
 
 
-def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd, detectors: dict, seed: int, noiseonly=False):
+def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd, detectors: dict, noiseonly=False):
 
     injection_file = f'{outdir}/injections_{fileidx:d}.hdf'
     injector = InjectionSet(injection_file)
@@ -143,7 +143,7 @@ def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict,
         # Generate strain
         tc = injtable[idx]['tc']
         for idx_detector, (k, ifo) in enumerate(detectors.items()):
-            strain = pycbc.noise.noise_from_psd(sp.tlen, sp.dt, psd, seed=seed)
+            strain = pycbc.noise.noise_from_psd(sp.tlen, sp.dt, psd)
             strain.start_time = tc - (sp.duration / 2)
             if noiseonly:
                 pass
@@ -159,7 +159,7 @@ def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict,
                 rho = matched_filter(template_bank['template'][i], strain * window, psd=psd_interp, low_frequency_cutoff=sp.low_frequency_cutoff)
                 snrlist[idx_detector, i] = torch.from_numpy(abs(rho).numpy())[sp.kcrop_left: sp.kcrop_right]
         # Smearing and storing the data
-        torch.save(snrlist.to(torch.float32), f'{outdir}/inputraw_{fileidx:d}_{idx:d}.pth')
+        # torch.save(snrlist.to(torch.float32), f'{outdir}/inputraw_{fileidx:d}_{idx:d}.pth')
         dataavg = make_snrmap_coarse(snrlist, sp.kfilter).to(torch.float32)
         torchfilename = f'{outdir}/input_{fileidx:d}_{idx:d}.pth'
         torch.save(dataavg, torchfilename)
@@ -239,7 +239,7 @@ def main(args):
                 nsample = int(ndata % NINJECTION_PER_FILE)
         else:
             nsample = NINJECTION_PER_FILE
-        create_injections(nsample, args.config, gps_start_time, args.seed + n + args.offset, injection_file, force=args.force)
+        create_injections(nsample, args.config, gps_start_time, injection_file, force=args.force)
         gps_start_time += nsample * INJECTION_TIME_STEP
 
     # Calculate SNR
@@ -248,9 +248,8 @@ def main(args):
         if not os.path.exists(f'{args.outdir}/{label}/snrlist_{n + args.offset:d}.hdf'):
             snrcalculate_list.append(n + args.offset)
     if len(snrcalculate_list) != 0:
-        randomstate = np.random.RandomState(seed=args.seed)
         with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
-            futures = [executor.submit(calculate_snr, f'{args.outdir}/{label}/injections_{n:d}.hdf', psd_analytic, sp, ifodict, randomstate.randint(0, 2**32)) for n in snrcalculate_list]
+            futures = [executor.submit(calculate_snr, f'{args.outdir}/{label}/injections_{n:d}.hdf', psd_analytic, sp, ifodict) for n in snrcalculate_list]
             results = [f.result() for f in futures]
         print('SNR calculation: ', results)
 
@@ -272,7 +271,7 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', type=str, help='Directory name including `train` or `validate` or `test`.')
     parser.add_argument('--ndata', type=int, help='Data number')
     parser.add_argument('--config', type=str, help='Configure file of injection')
-    parser.add_argument('--seed', type=int, default=None, help='seed')
+    # parser.add_argument('--seed', type=int, default=None, help='seed')
     parser.add_argument('--starttime', type=int, help='Injection start GPS time.')
     parser.add_argument('--noiseonly', action='store_true', help='If true, no GW signal are injected.')
     parser.add_argument('--parameteronly', action='store_true', help='If true, no foreground is generated.')

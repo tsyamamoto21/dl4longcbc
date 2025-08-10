@@ -1,5 +1,6 @@
 import os
 import re
+import pickle
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
@@ -105,7 +106,7 @@ def load_dataset(datadir, labelnamelist, imgsize, labellist=None):
     return normalize_tensor(input_tensors), label_tensors
 
 
-def make_pathlist_and_labellist(datadir, labelnames, labels=None):
+def make_pathlist_and_labellist(datadir, n_subset, labelnames, labels=None, snr_threshold=None):
     '''
     e.g.
     datadir is the direcotry.
@@ -114,9 +115,10 @@ def make_pathlist_and_labellist(datadir, labelnames, labels=None):
 
     filename pattern is 'input_{idx1}_{idx2}.pth'
     {idx1} is an index for a set of 1000 data.
-    {idx2} is 0-1000
+    {idx2} is 0-999
     '''
 
+    n_per_subset = 1000
     # The number of classes
     nclass = len(labelnames)
     if labels is None:
@@ -125,24 +127,69 @@ def make_pathlist_and_labellist(datadir, labelnames, labels=None):
     # List up all pth files in the direcotry
     filelist = []
     labellist = []
-    pattern = re.compile(r"input_\d{10}_\d{2}.pth")
     for label, labelname in zip(labels, labelnames):
-        target_dir = f'{datadir}/{labelname}/'
-        assert os.path.exists(target_dir), f"Directory `{target_dir}` does not exist."
-        all_files_in_target_dir = os.listdir(target_dir)
-        all_file_paths = [f'{target_dir}/{f}' for f in all_files_in_target_dir if pattern.fullmatch(f)]
-        filelist.extend(all_file_paths)
-        labellist.extend([label] * len(all_file_paths))
+        for idx_subset in range(n_subset):
+                target_dir = f'{datadir}/{labelname}/'
+                assert os.path.exists(target_dir), f"Directory `{target_dir}` does not exist."
+                if snr_threshold is not None:
+                    snrth = SNRThreshold(target_dir, idx_subset, snr_threshold)
+
+                for idx in range(n_per_subset):
+                    flg = True
+                    if snr_threshold is not None:
+                        flg = snrth.is_above_snrthreshold(idx)
+                    filename = f'{target_dir}/input_{idx_subset}_{idx}.pth'
+                    if os.path.exists(filename) and flg:
+                        filelist.append(filename)
+                        labellist.append(label)
     return filelist, labellist
 
 
 class SNRThreshold():
-    def __init__(self, dirname):
+    def __init__(self, dirname, idx_subset, snr_threshold, mode='either'):
+        '''
+        dirname should include up to label
+        '''
+        assert (mode == 'both') or (mode == 'either'), 'Choose both or either'
         self.dirname = dirname
+        self.pklfile = f'{dirname}/snrlist_{idx_subset:d}.pkl'
+        with open(self.pklfile, 'rb') as fo:
+            self.snrlist = pickle.load(fo)
+        self.snr_threshold = snr_threshold
+        self.mode = mode
 
-    def _is_above_snrthreshold(self, idx_subset, idx_data, snrtheshold):
-        
-    
-    
-    
+    def is_above_snrthreshold(self, idx_data):
+        flg_above_threshold_h = self.snrlist[idx_data][2]
+        flg_above_threshold_l = self.snrlist[idx_data][3]
+        if self.mode == 'both':
+            flg_above_threshold = flg_above_threshold_h and flg_above_threshold_l
+        elif self.mode == 'either':
+            flg_above_threshold = flg_above_threshold_h or flg_above_threshold_l
+        return flg_above_threshold
 
+
+def equalize_data_number_between_labels(pathlist, labellist):
+    label_unique = list(set(labellist))  # Extract unique label set
+    pathsubset_list = []
+    labelsubset_list = []
+    ndatalist = []
+    # Divide list by labels
+    for l in label_unique:
+        pathsubset = [pathlist[i] for i in range(len(pathlist)) if labellist[i] == l]
+        pathsubset_list.append(pathsubset)
+        labelsubset_list.append([l]*len(pathsubset))
+        ndatalist.append(len(pathsubset))
+
+    # Smallest label
+    label_target = np.argmin(ndatalist)
+    ndata_target = ndatalist[label_target]
+
+    # Cut the dataset
+    for l in label_unique:
+        if l != label_target:
+            pathsubset_list[l] = pathsubset_list[l][:ndata_target]
+            labelsubset_list[l] = labelsubset_list[l][:ndata_target]
+    
+    pathsubset_list = sum(pathsubset_list, [])  # flatten
+    labelsubset_list = sum(labelsubset_list, [])  # flatten
+    return pathsubset_list, labelsubset_list
