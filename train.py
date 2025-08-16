@@ -43,9 +43,9 @@ def main(args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Make dataloader
-    img_height = config.dataset.img_height
-    img_width = config.dataset.img_width
-    img_channel = config.dataset.img_channel
+    # img_height = config.dataset.img_height
+    # img_width = config.dataset.img_width
+    # img_channel = config.dataset.img_channel
     input_height = config.net.input_height
     input_width = config.net.input_width
     input_channel = config.net.input_channel

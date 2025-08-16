@@ -6,7 +6,8 @@ from torch.nn.functional import softmax
 from torch.utils.data import DataLoader
 from torchvision.transforms import RandomCrop
 from omegaconf import OmegaConf
-from dl4longcbc.dataset import make_pathlist_and_labellist, LabelDataset
+# from dl4longcbc.dataset import make_pathlist_and_labellist, LabelDataset
+import dl4longcbc.dataset as ds
 from dl4longcbc.net import instantiate_neuralnetwork
 from dl4longcbc.dataset import TestResult
 
@@ -31,20 +32,19 @@ def main(args):
     # <<< Load model <<<
 
     # Make dataloader
-    # img_height = config_tr.dataset.img_height
-    # img_width = config_tr.dataset.img_width
-    # img_channel = config_tr.dataset.img_channel
     input_height = config_tr.net.input_height
     input_width = config_tr.net.input_width
-    # input_channel = config_tr.net.input_channel
     transforms = nn.Sequential(
-        RandomCrop((input_height, input_width))
+        RandomCrop((input_height, input_width)),
+        ds.NormalizeTensor()
     )
+    # num_workers = config.train.num_workers
     nb = args.batchsize
-    inputpaths, labels = make_pathlist_and_labellist(f'{datadir}/', ['noise'], [0])
-    dataset = LabelDataset(inputpaths, labels, transform=transforms)
+    # inputpaths, labels = make_pathlist_and_labellist(f'{datadir}/', ['noise'], [0])
+    inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['noise'], [0], snr_threshold=None)
+    dataset = ds.LabelDataset(inputpathlist, labellist, transform=transforms)
     dataloader = DataLoader(dataset, batch_size=nb, shuffle=False, drop_last=False, num_workers=8)
-    ndata = len(inputpaths)
+    ndata = len(inputpathlist)
 
     outputtensor = torch.empty((ndata, 2), dtype=torch.float32)
     labeltensor = torch.empty((ndata,), dtype=torch.long)
