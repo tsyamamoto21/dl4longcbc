@@ -174,9 +174,8 @@ def generate_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict,
 
         # Smearing and storing the data
         torchfilename = f'{outdir}/input_{fileidx:d}_{idx:d}.pth'
-        # dataavg = make_snrmap_coarse(snrlist, sp.kfilter).to(torch.float32)
-        # torch.save(dataavg, torchfilename)
-        torch.save(snrlist, torchfilename)
+        dataavg = make_snrmap_coarse(snrlist, sp.kfilter).to(torch.float32)
+        torch.save(dataavg, torchfilename)
 
 
 def main(args):

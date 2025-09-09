@@ -70,9 +70,9 @@ class LoadZeroNoiseMatchedFilter(nn.Module):
 
     def forward(self, filepath):
         if filepath is None:
-            x = torch.zeros(size=self.shape, dtype=torch.float32)
+            x = torch.zeros(size=self.shape, dtype=torch.complex128)
         else:
-            x = torch.load(filepath, weights_only=False, dtype=torch.float32)
+            x = torch.load(filepath, weights_only=False, dtype=torch.complex128)
         return x
 
 
@@ -86,8 +86,8 @@ class ProjectionAndTimeShift(nn.Module):
         self.w_tar = 4096  # 4096 = 1s * 4096Hz
         self.kbuffer_for_dt = 128  # = (1/32)s * 4096Hz
         self.kbuffer_for_timeshift = 2048  # = 0.5s * 4096Hz
-        self.kstart_min = self.k_buffer_for_dt
-        self.kstart_max = self.k_buffer_for_dt + self.k_buffer_for_timeshift
+        self.kstart_min = self.kbuffer_for_dt
+        self.kstart_max = self.kbuffer_for_dt + self.kbuffer_for_timeshift
 
     def forward(self, x):
         # x: torch.Tensor (2, H, W)
@@ -111,7 +111,7 @@ class ProjectionAndTimeShift(nn.Module):
         kstart2 = kstart1 + kshift
         kend2 = kstart2 + self.w_tar
         # Crop the data
-        xout = torch.zeros((2, height, self.w_tar))
+        xout = torch.zeros((2, height, self.w_tar), dtype=torch.complex128)
         xout[0] = Fp1 * Ap * x[0, :, kstart1: kend1] + Fc1 * Ac * x[1, :, kstart1: kend1]
         xout[1] = Fp2 * Ap * x[0, :, kstart2: kend2] + Fc2 * Ac * x[1, :, kstart2: kend2]
         return xout
@@ -185,19 +185,19 @@ def make_pathlist_and_labellist(datadir, n_subset, labelnames, labels=None, snr_
     labellist = []
     for label, labelname in zip(labels, labelnames):
         for idx_subset in range(n_subset):
-                target_dir = f'{datadir}/{labelname}/'
-                assert os.path.exists(target_dir), f"Directory `{target_dir}` does not exist."
-                if snr_threshold is not None:
-                    snrth = SNRThreshold(target_dir, idx_subset, snr_threshold)
+            target_dir = f'{datadir}/{labelname}/'
+            assert os.path.exists(target_dir), f"Directory `{target_dir}` does not exist."
+            if snr_threshold is not None:
+                snrth = SNRThreshold(target_dir, idx_subset, snr_threshold)
 
-                for idx in range(n_per_subset):
-                    flg = True
-                    if snr_threshold is not None:
-                        flg = snrth.is_above_snrthreshold(idx)
-                    filename = f'{target_dir}/input_{idx_subset}_{idx}.pth'
-                    if os.path.exists(filename) and flg:
-                        filelist.append(filename)
-                        labellist.append(label)
+            for idx in range(n_per_subset):
+                flg = True
+                if snr_threshold is not None:
+                    flg = snrth.is_above_snrthreshold(idx)
+                filename = f'{target_dir}/input_{idx_subset}_{idx}.pth'
+                if os.path.exists(filename) and flg:
+                    filelist.append(filename)
+                    labellist.append(label)
     return filelist, labellist
 
 
@@ -233,7 +233,7 @@ def equalize_data_number_between_labels(pathlist, labellist):
     for l in label_unique:
         pathsubset = [pathlist[i] for i in range(len(pathlist)) if labellist[i] == l]
         pathsubset_list.append(pathsubset)
-        labelsubset_list.append([l]*len(pathsubset))
+        labelsubset_list.append([l] * len(pathsubset))
         ndatalist.append(len(pathsubset))
 
     # Smallest label
@@ -245,7 +245,7 @@ def equalize_data_number_between_labels(pathlist, labellist):
         if l != label_target:
             pathsubset_list[l] = pathsubset_list[l][:ndata_target]
             labelsubset_list[l] = labelsubset_list[l][:ndata_target]
-    
+
     pathsubset_list = sum(pathsubset_list, [])  # flatten
     labelsubset_list = sum(labelsubset_list, [])  # flatten
     return pathsubset_list, labelsubset_list
