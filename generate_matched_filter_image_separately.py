@@ -44,7 +44,10 @@ class SignalProcessingParameters:
         self.width_before_smearing = self.kcrop_right - self.kcrop_left
 
         # Noise image
-        self.width_noise_image = 4 * 4096
+        self.tseg_noise = self.duration // 2
+        self.width_noise_image = int(self.tseg_noise * self.fs)
+        self.kcrop_left_noise = int(self.fs * (self.duration - self.tseg_noise) // 2)
+        self.kcrop_right_noise = self.tlen - self.kcrop_left_noise
 
 
 def _condition_m1_larger_than_m2(m1sample, m2sample):
@@ -55,7 +58,7 @@ def _condition_m1_larger_than_m2(m1sample, m2sample):
     return m1sample, m2sample
 
 
-def generate_signal_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd, detectors: dict):
+def generate_signal_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd):
 
     # Generate injection signal
     mmin, mmax = 10.0, 50.0
@@ -100,7 +103,7 @@ def generate_signal_matchedfilter_image(outdir: str, fileidx: int, template_bank
     torch.save(snrlist, torchfilename)
 
 
-def generate_noise_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd, detectors: dict):
+def generate_noise_matchedfilter_image(outdir: str, fileidx: int, template_bank: dict, sp: SignalProcessingParameters, psd):
 
     # SNR image array
     snrlist = torch.zeros((sp.height_input, sp.width_noise_image), requires_grad=False, dtype=torch.complex128)
@@ -115,7 +118,7 @@ def generate_noise_matchedfilter_image(outdir: str, fileidx: int, template_bank:
     # Calculate SNR with template bank
     for i in range(sp.height_input):
         rho = matched_filter(template_bank['template'][i], strain * window, psd=psd_interp, low_frequency_cutoff=sp.low_frequency_cutoff)
-        snrlist[i] = torch.from_numpy(rho.numpy())
+        snrlist[i] = torch.from_numpy(rho.numpy())[sp.kcrop_left_noise: sp.kcrop_right_noise]
 
     # # If necessary, strain is saved
     # strainfilename = f'{outdir}/strain_{fileidx:d}_{idx:d}_{k}.pkl'
@@ -189,11 +192,11 @@ def main(args):
         template_bank['template'].append(hp_fd)
 
     # Generate matched filter images
-    with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_workers) as executor:
         if args.noise:
-            futures = [executor.submit(generate_noise_matchedfilter_image, os.path.join(outdir, label), n, template_bank, sp, psd_analytic, args.noiseonly, args.nonoise) for n in range(args.offset, args.offset + ndata)]
+            futures = [executor.submit(generate_noise_matchedfilter_image, os.path.join(outdir, label), n, template_bank, sp, psd_analytic) for n in range(args.offset, args.offset + ndata)]
         elif args.signal:
-            futures = [executor.submit(generate_signal_matchedfilter_image, os.path.join(outdir, label), n, template_bank, sp, psd_analytic, args.noiseonly, args.nonoise) for n in range(args.offset, args.offset + ndata)]
+            futures = [executor.submit(generate_signal_matchedfilter_image, os.path.join(outdir, label), n, template_bank, sp, psd_analytic) for n in range(args.offset, args.offset + ndata)]
         else:
             ValueError('Something wrong with --noise and/or --signal.')
         results = [f.result() for f in futures]
@@ -208,6 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--noise', action='store_true', help='Noise mf image')
     parser.add_argument('--signal', action='store_true', help='Signal mf image')
     parser.add_argument('--offset', type=int, default=0)
+    parser.add_argument('--max_workers', type=int, default=48)
     args = parser.parse_args()
 
     # Check arguments consistency
