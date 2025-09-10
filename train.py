@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 from hydra.utils import instantiate
 import dl4longcbc.dataset_train as ds
 from dl4longcbc.net import instantiate_neuralnetwork
-from dl4longcbc.utils import if_not_exist_makedir, plot_training_curve
+import dl4longcbc.utils as utils
 
 
 # ----------------------------------------------------------------
@@ -22,17 +22,19 @@ from dl4longcbc.utils import if_not_exist_makedir, plot_training_curve
 def main(args):
     # Load parameters
     config = OmegaConf.load(args.config)
+    utils.check_if_snr_schdule_is_well_configured(config)
 
     # Make model directory
     if args.dirname is None:
         now_datetime = datetime.now(timezone('Asia/Tokyo')).strftime('%Y%m%d_%H%M%S')
-        modeldirectory = f'./data/model/{config.train.experiment_name}/{now_datetime}'
+        modeldirectory = os.path.join('./data/model', config.train.experiment_name, now_datetime)
     else:
-        modeldirectory = f'./data/model/{config.train.experiment_name}/{args.dirname}'
-    if_not_exist_makedir(modeldirectory)
+        modeldirectory = os.path.join('./data/model', config.train.experiment_name, args.dirname)
+    utils.if_not_exist_makedir(modeldirectory)
     shutil.copy(args.config, modeldirectory)
 
     config = OmegaConf.load('./config/config_train.yaml')
+    snr_range_schduler = utils.SNRRangeScheduler(config)
 
     # Set device
     print(f'Is gpu available? {torch.cuda.is_available()}')
@@ -48,24 +50,24 @@ def main(args):
     snrrange = config.train.snrrange
     num_workers = config.train.num_workers
     # Training dataset and data loader
-    traindatadir = os.path.join(config.dataset.datadir, 'train')
-    inputpaths_tr, labellists_tr = ds.make_pathlist_and_labellist(traindatadir, 100)
-    noisepaths_tr = ds.get_noise_filepaths(traindatadir, nfile=10)
-    dataset_tr = ds.LabelDataset(inputpaths_tr, labellists_tr, noisepaths_tr, snrrange)
-    dataloader_tr = DataLoader(dataset_tr, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
+    traindatadir = os.path.join(config.dataset.directory, 'train')
+    inputpaths_tr, labellists_tr = ds.make_pathlist_and_labellist(traindatadir, config.dataset.signals_tr)
+    noisepaths_tr = ds.get_noise_filepaths(traindatadir, config.dataset.noises_tr)
+    # dataset_tr = ds.LabelDataset(inputpaths_tr, labellists_tr, noisepaths_tr, snrrange)
+    # dataloader_tr = DataLoader(dataset_tr, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
     # Validation dataset and data loader
-    valdatadir = os.path.join(config.dataset.datadir, 'validate')
-    inputpaths_val, labellists_val = ds.make_pathlist_and_labellist(valdatadir, 10)
-    noisepaths_val = ds.get_noise_filepaths(valdatadir, 10)
-    dataset_val = ds.LabelDataset(inputpaths_val, labellists_val, noisepaths_val, snrrange)
-    dataloader_val = DataLoader(dataset_val, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
+    valdatadir = os.path.join(config.dataset.directory, 'validate')
+    inputpaths_val, labellists_val = ds.make_pathlist_and_labellist(valdatadir, config.dataset.signals_val)
+    noisepaths_val = ds.get_noise_filepaths(valdatadir, config.dataset.noises_val)
+    # dataset_val = ds.LabelDataset(inputpaths_val, labellists_val, noisepaths_val, snrrange)
+    # dataloader_val = DataLoader(dataset_val, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
 
     # Create model
     model = instantiate_neuralnetwork(config)
     model = model.to(device)
     print("Network model created")
     # Save the model structure
-    with open(f'{modeldirectory}/model_structure.txt', 'w') as f:
+    with open(os.path.join(modeldirectory, 'model_structure.txt'), 'w') as f:
         f.write(repr(summary(model, input_size=(1, input_channel, input_height, input_width))))
 
     # Define loss function and optimizer
@@ -80,6 +82,14 @@ def main(args):
     validateaccuracy_list = []
     train_starttime = time.time()
     for epoch in range(config.train.num_epochs):
+        # Prepare dataset if schedule flg is True
+        flg, snrrange = snr_range_schduler.step(epoch)
+        if flg:
+            dataset_tr = ds.LabelDataset(inputpaths_tr, labellists_tr, noisepaths_tr, snrrange)
+            dataloader_tr = DataLoader(dataset_tr, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
+            dataset_val = ds.LabelDataset(inputpaths_val, labellists_val, noisepaths_val, snrrange)
+            dataloader_val = DataLoader(dataset_val, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
+
         model.train()
         running_loss = 0.0
         for i, (inputs, labels) in enumerate(dataloader_tr):
@@ -121,29 +131,29 @@ def main(args):
     print(f'Run time: {train_endtime - train_starttime} [sec]')
 
     # Plot the training and validation curve
-    filename = f'{modeldirectory}/learning_curve.pdf'
-    plot_training_curve(trainloss_list, validateloss_list, filename)
-    filename = f'{modeldirectory}/accuracy_curve.pdf'
-    plot_training_curve(trainaccuracy_list, validateaccuracy_list, filename)
+    filename = os.path.join(modeldirectory, 'learning_curve.pdf')
+    utils.plot_training_curve(trainloss_list, validateloss_list, filename)
+    filename = os.path.join(modeldirectory, 'accuracy_curve.pdf')
+    utils.plot_training_curve(trainaccuracy_list, validateaccuracy_list, filename)
 
     # Save train loss
-    with open(f'{modeldirectory}/train_crossentropy_loss.txt', 'w') as f:
+    with open(os.path.join(modeldirectory, 'train_crossentropy_loss.txt'), 'w') as f:
         for row in trainloss_list:
             print(*row, file=f)
-    with open(f'{modeldirectory}/train_accuracy_loss.txt', 'w') as f:
+    with open(os.path.join(modeldirectory, 'train_accuracy_loss.txt'), 'w') as f:
         for row in trainaccuracy_list:
             print(*row, file=f)
 
     # Save validation loss
-    with open(f'{modeldirectory}/validate_crossentropy_loss.txt', 'w') as f:
+    with open(os.path.join(modeldirectory, 'validate_crossentropy_loss.txt'), 'w') as f:
         for row in validateloss_list:
             print(*row, file=f)
-    with open(f'{modeldirectory}/validate_accuracy_loss.txt', 'w') as f:
+    with open(os.path.join(modeldirectory, 'validate_accuracy_loss.txt'), 'w') as f:
         for row in validateaccuracy_list:
             print(*row, file=f)
 
     # Save the trained model
-    torch.save(model.to('cpu').state_dict(), f'{modeldirectory}/model.pth')
+    torch.save(model.to('cpu').state_dict(), os.path.join(modeldirectory, 'model.pth'))
 
 
 if __name__ == "__main__":

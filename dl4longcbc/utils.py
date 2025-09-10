@@ -4,6 +4,7 @@ utils.py
 import os
 import numpy as np
 from pycbc.waveform import TimeSeries
+from omegaconf import OmegaConf
 import matplotlib.pyplot as plt
 from .gw_parameters import remnantspin, ISCO_radius
 from astropy.constants import G, c, M_sun, pc
@@ -100,3 +101,54 @@ def plot_training_curve(trainloss, validateloss, filename):
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.savefig(filename)
+
+
+class SNRRangeScheduler:
+    def __init__(self, config: OmegaConf):
+        self.previous_step = None
+        self.config = config
+        self.schedule = config.train.snr_schedule
+        self.nstep = len(self.schedule)
+        self._check_if_snr_schdule_is_well_configured(config)
+
+    def step(self, epoch):
+        for i in range(self.nstep):
+            if self.schedule[i][0] <= epoch < self.schedule[i][1]:
+                current_step = i
+
+        snrrange = [self.schedule[current_step][2], self.schedule[current_step][3]]
+        flag = (current_step != self.previous_step)
+        self.previous_step = current_step
+        return flag, snrrange
+
+    def _check_if_snr_schdule_is_well_configured(self, config: OmegaConf):
+        schedule = config.train.snr_schedule
+        nsteps = len(schedule)
+
+        # Size check
+        length_is_not_4 = np.any([len(schedule[i]) != 4 for i in range(nsteps)])
+        if length_is_not_4:
+            raise ValueError(f"Some schedule step has no list with the length of 4: Schedule = {schedule}")
+
+        # The first epoch should be 0
+        if schedule[0][0] != 0:
+            raise ValueError(f"The first epoch of the first step should be 0: Schedule = {schedule}")
+
+        # The last epoch should equal the num_epochs
+        if schedule[nsteps - 1][1] != config.train.num_epochs:
+            raise ValueError(f"The last epoch of the last step should be num_epochs: Schedule = {schedule}")
+
+        # Consistency check
+        errorflg = False
+        if nsteps >= 2:
+            for i in range(nsteps - 1):
+                errorflg += not (schedule[i][1] == schedule[i + 1][0])
+            if errorflg:
+                raise ValueError(f"Step start epoch does not match the end epoch of the previous step: Schedule = {schedule}")
+
+        # SNR max must larger than SNR min
+        errorflg = False
+        for i in range(nsteps):
+            errorflg += schedule[i][2] > schedule[i][3]
+        if errorflg:
+            raise ValueError(f"SNR max is smaller than SNR min: Schedule = {schedule}")
