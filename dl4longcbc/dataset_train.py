@@ -1,6 +1,6 @@
 import os
 import re
-import sys
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,7 +8,7 @@ from pycbc.detector import Detector
 
 
 class LabelDataset(torch.utils.data.Dataset):
-    def __init__(self, signal_mf_filepaths, labels, noise_mf_filepaths):
+    def __init__(self, signal_mf_filepaths, labels, noise_mf_filepaths, snrrange: list):
         # self.transform = transform
         self.fp_signal = signal_mf_filepaths
         self.fp_noise = noise_mf_filepaths
@@ -16,21 +16,27 @@ class LabelDataset(torch.utils.data.Dataset):
         self.noise_num = len(self.fp_noise)
         self.labels = labels
         # Transforms
-        self.load_zero_noise_mf = LoadZeroNoiseMatchedFilter((2, 256, 4096))
+        self.load_zero_noise_mf = LoadZeroNoiseMatchedFilter((2, 256, 3200))
         self.proection_timeshift = ProjectionAndTimeShift()
         self.load_noise_sample = GetNoiseSample()
+        self.adjust_amplitude = AdjustAmplitudeToTargetSNR(snrrange[0], snrrange[1])
         self.inject = InjectSignalIntoNoise_in_MFSense()
+        # self.smear_snrmap = SmearMFImage()
 
     def __len__(self):
         return self.data_num
 
     def __getitem__(self, idx):
-        zinj = self.load_zero_noise_mf(self.fp_signal[idx])
-        zinj = self.proection_timeshift(zinj)
+        # Get label
+        out_label = self.labels[idx]
+        # Get input data
+        out_data = self.load_zero_noise_mf(self.fp_signal[idx])
+        out_data = self.proection_timeshift(out_data)
         idx_noise = np.random.randint(0, self.noise_num, (2,))
         zn = self.load_noise_sample([self.fp_noise[idx_noise[0]], self.fp_noise[idx_noise[1]]])
-        out_data = self.inject(zn, zinj)
-        out_label = torch.tensor(self.labels[idx], dtype=torch.long)
+        out_data = self.adjust_amplitude(out_data, zn, out_label)
+        out_data = self.inject(zn, out_data)
+        # out_data = self.smear_snrmap(out_data)
         return out_data, out_label
 
 
@@ -54,7 +60,9 @@ class LoadZeroNoiseMatchedFilter(nn.Module):
         if filepath is None:
             x = torch.zeros(size=self.shape, dtype=torch.complex128)
         else:
-            x = torch.load(filepath, weights_only=False, dtype=torch.complex128)
+            x = torch.load(filepath, weights_only=False)
+            assert x.dtype == torch.complex128, "Loaded data is not torch.complex128."
+            assert x.size() == self.shape, f"Size is not appropriate, loaded size {x.size()}, required {self.shape}"
         return x
 
 
@@ -63,11 +71,11 @@ class ProjectionAndTimeShift(nn.Module):
         super().__init__()
         self.ifo1 = Detector('H1')
         self.ifo2 = Detector('L1')
-        self.fs = 4096  # 4096Hz (default)
-        self.w_org = 5376  # = (1.25s + 1/16s) * 4096Hz
-        self.w_tar = 4096  # 4096 = 1s * 4096Hz
-        self.kbuffer_for_dt = 128  # = (1/32)s * 4096Hz
-        self.kbuffer_for_timeshift = 2048  # = 0.5s * 4096Hz
+        self.fs = 2048  # 2048Hz (default)
+        self.w_org = 3200  # = (1.5s + 1/16s) * 2048Hz
+        self.w_tar = 2048  # 2048 = 1s * 2048Hz
+        self.kbuffer_for_dt = 64  # = (1/32)s * 2048Hz
+        self.kbuffer_for_timeshift = 1024  # = 0.5s * 2048Hz
         self.kstart_min = self.kbuffer_for_dt
         self.kstart_max = self.kbuffer_for_dt + self.kbuffer_for_timeshift
 
@@ -75,7 +83,7 @@ class ProjectionAndTimeShift(nn.Module):
         # x: torch.Tensor (2, H, W)
         _, height, width = x.size()
         # Random sampling the extrinsic parameters
-        gpstime = np.random.randint(1200000000, 1400000000)
+        gpstime = random.randint(1200000000, 1400000000)
         ra = np.random.uniform(0.0, 2.0 * np.pi)
         dec = np.arcsin(np.random.uniform(-1, 1))
         pol = np.random.uniform(0.0, np.pi)
@@ -88,7 +96,7 @@ class ProjectionAndTimeShift(nn.Module):
         # Time Shift
         dt = self.ifo2.time_delay_from_detector(self.ifo1, ra, dec, gpstime)
         kshift = int(dt * self.fs)
-        kstart1 = np.random.randint(self.kstart_min, self.kstart_max)
+        kstart1 = random.randint(self.kstart_min, self.kstart_max)
         kend1 = kstart1 + self.w_tar
         kstart2 = kstart1 + kshift
         kend2 = kstart2 + self.w_tar
@@ -102,18 +110,43 @@ class ProjectionAndTimeShift(nn.Module):
 class GetNoiseSample(nn.Module):
     def __init__(self):
         super().__init__()
-        self.w_org = 4 * 4096
-        self.w_tar = 4096
+        self.w_org = 4 * 2048
+        self.w_tar = 2048
         self.kstart_min = 0
         self.kstart_max = self.w_org - self.w_tar
 
     def forward(self, filepaths: list):
         channel = len(filepaths)
-        xout = torch.zeros((channel, 256, 4096), dtype=torch.complex128)
+        xout = torch.zeros((channel, 256, 2048), dtype=torch.complex128)
         for c in range(channel):
-            kstart = np.random.randint(self.kstart_min, self.kstart_max)
-            xout[c] = torch.load(filepaths[c], weights_only=False)[kstart: kstart + self.w_tar]
+            kstart = random.randint(self.kstart_min, self.kstart_max)
+            xout[c] = torch.load(filepaths[c], weights_only=False)[:, kstart: kstart + self.w_tar]
         return xout
+
+
+class AdjustAmplitudeToTargetSNR(nn.Module):
+    def __init__(self, snrmin, snrmax):
+        super().__init__()
+        self.snrmin = snrmin
+        self.snrmax = snrmax
+
+    def forward(self, zinj: torch.Tensor, zn: torch.Tensor, label):
+        assert zn.size() == zinj.size(), "zn and zinj do not have the same size."
+        if label == 0:
+            return zinj
+        elif label == 1:
+            snr_target = random.randint(self.snrmin, self.snrmax)
+            _, indices = torch.max(zinj.abs().view(2, -1), dim=1)
+            rows, cols = torch.unravel_index(indices, (256, 2048))
+            zn_max = torch.diag(zn[:, rows, cols])
+            zinj_max = torch.diag(zinj[:, rows, cols])
+            zn2 = torch.sum((zn_max * zn_max.conj()).real)
+            zinj2 = torch.sum((zinj_max * zinj_max.conj()).real)
+            zcorr = 2.0 * torch.sum((zn_max * zinj_max.conj()).real)
+            amp = (-zcorr + torch.sqrt(zcorr**2 - zinj2 * (zn2 - snr_target**2))) / (zinj2)
+        else:
+            raise ValueError('label must be 0 or 1')
+        return zinj * amp
 
 
 class InjectSignalIntoNoise_in_MFSense(nn.Module):
@@ -126,6 +159,20 @@ class InjectSignalIntoNoise_in_MFSense(nn.Module):
         zinj2 = (zinj * zinj._conj()).real
         zcross = 2.0 * (zn * zinj._conj()).real
         return torch.sqrt(zn2 + zinj2 + zcross)
+
+
+class SmearMFImage(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.kfilter = 16
+
+    def forward(self, snrmap: torch.Tensor):
+        nc, nx, ny = snrmap.shape
+        ny_coarse = ny // self.kfilter
+        snrmap_coarse = torch.zeros((nc, nx, ny_coarse), dtype=torch.float32)
+        for i in range(ny_coarse):
+            snrmap_coarse[:, :, i] = torch.sqrt(torch.mean(snrmap[:, :, i * self.kfilter: (i + 1) * self.kfilter]**2, dim=-1))
+        return snrmap_coarse
 
 
 def normalize_tensor(x):
@@ -173,67 +220,36 @@ def load_dataset(datadir, labelnamelist, imgsize, labellist=None):
     return normalize_tensor(input_tensors), label_tensors
 
 
-def make_pathlist_and_labellist(datadir, n_subset, labeldict: dict = {'noise': 0, 'cbc': 1}):
+def make_pathlist_and_labellist(datadir: str, ndata: int, labeldict: dict = {'noise': 0, 'cbc': 1}):
     '''
     e.g.
     datadir is the direcotry.
     labeldict = {'noise': 0, 'cbc': 1} for example
 
-    filename pattern is 'signal_mfimage_{idx1}_{idx2}.pth'
-    {idx1} is an index for a set of 1000 data.
-    {idx2} is 0-999
+    filename pattern is 'signal_mfimage_{idx}.pth'
     '''
-    n_per_subset = 1000
-
     # List up all pth files in the direcotry
     filelist = []
     labellist = []
     # assert os.path.exists(target_dir), f"Directory `{target_dir}` does not exist."
 
     for k, v in labeldict.items():
-        for idx_subset in range(n_subset):
-            for idx in range(n_per_subset):
-                if k == 'noise':
-                    filename = None
-                else:
-                    filename = os.path.join(datadir, f'cbc/signal_mfimage_{idx_subset}_{idx}.pth')
-                filelist.append(filename)
-                labellist.append(v)
-    return filelist, labellist
+        for idx in range(ndata):
+            if k == 'noise':
+                filename = None
+            else:
+                filename = os.path.join(datadir, f'cbc/signalmf_{idx:d}.pth')
+                assert os.path.exists(filename), f"File {filename} does not exist."
+            filelist.append(filename)
+            labellist.append(v)
+    return filelist, torch.tensor(labellist, dtype=torch.long)
 
 
-# def equalize_data_number_between_labels(pathlist, labellist):
-#     label_unique = list(set(labellist))  # Extract unique label set
-#     pathsubset_list = []
-#     labelsubset_list = []
-#     ndatalist = []
-#     # Divide list by labels
-#     for label in label_unique:
-#         pathsubset = [pathlist[i] for i in range(len(pathlist)) if labellist[i] == label]
-#         pathsubset_list.append(pathsubset)
-#         labelsubset_list.append([label] * len(pathsubset))
-#         ndatalist.append(len(pathsubset))
-
-#     # Smallest label
-#     label_target = np.argmin(ndatalist)
-#     ndata_target = ndatalist[label_target]
-
-#     # Cut the dataset
-#     for label in label_unique:
-#         if label != label_target:
-#             pathsubset_list[label] = pathsubset_list[label][:ndata_target]
-#             labelsubset_list[label] = labelsubset_list[label][:ndata_target]
-
-#     pathsubset_list = sum(pathsubset_list, [])  # flatten
-#     labelsubset_list = sum(labelsubset_list, [])  # flatten
-#     return pathsubset_list, labelsubset_list
-
-
-def get_noise_filepaths(datadir, nfile):
+def get_noise_filepaths(datadir: str, nfile: int):
     filelist = []
     for idx in range(nfile):
-        filename = os.path.join(datadir, f'noise/noise_mfimage_{idx}.pth')
-        assert sys.path.exists(filename), f"File {filename} does not exist."
+        filename = os.path.join(datadir, f'noise/noisemf_{idx:d}.pth')
+        assert os.path.exists(filename), f"File {filename} does not exist."
         filelist.append(filename)
     return filelist
 

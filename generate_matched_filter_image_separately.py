@@ -39,8 +39,9 @@ class SignalProcessingParameters:
         self.width_input = width_input
         self.height_input = height_input
         self.kfilter = int(self.fs * self.tsegment / self.width_input)
-        self.kcrop_left = int(self.fs * (self.duration / 2 - 3 * self.tsegment / 4))
-        self.kcrop_right = int(self.fs * (self.duration / 2 + 3 * self.tsegment / 4))
+        self.kbuffer_for_timedelay = int(self.fs * (1 / 32))
+        self.kcrop_left = int(self.fs * (self.duration / 2 - 3 * self.tsegment / 4) - self.kbuffer_for_timedelay)
+        self.kcrop_right = int(self.fs * (self.duration / 2 + 3 * self.tsegment / 4) + self.kbuffer_for_timedelay)
         self.width_before_smearing = self.kcrop_right - self.kcrop_left
 
         # Noise image

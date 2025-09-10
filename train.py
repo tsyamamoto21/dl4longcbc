@@ -6,12 +6,8 @@ import argparse
 from datetime import datetime
 from pytz import timezone
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchinfo import summary
-from torchvision.transforms import RandomCrop
-# from torcheval.metrics import MulticlassAccuracy
-# import torchmetrics
 from torchmetrics.classification import Accuracy
 from omegaconf import OmegaConf
 from hydra.utils import instantiate
@@ -47,15 +43,21 @@ def main(args):
     input_width = config.net.input_width
     input_channel = config.net.input_channel
 
-    snr_threshold = config.train.snr_threshold
+    # Get dataset
+    # snr_threshold = config.train.snr_threshold
+    snrrange = config.train.snrrange
     num_workers = config.train.num_workers
-    inputpaths, labellists = ds.make_pathlist_and_labellist(f'{config.dataset.datadir}/train/', 100, ['noise', 'cbc'], [0, 1], snr_threshold=snr_threshold)
-    noisepaths = ds.get_noise_filepaths(f'{config.dataset.datadir}/train/', nfile=10)
-    dataset_tr = ds.LabelDataset(inputpaths, labellists, noisepaths)
+    # Training dataset and data loader
+    traindatadir = os.path.join(config.dataset.datadir, 'train')
+    inputpaths_tr, labellists_tr = ds.make_pathlist_and_labellist(traindatadir, 100)
+    noisepaths_tr = ds.get_noise_filepaths(traindatadir, nfile=10)
+    dataset_tr = ds.LabelDataset(inputpaths_tr, labellists_tr, noisepaths_tr, snrrange)
     dataloader_tr = DataLoader(dataset_tr, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
-    inputpaths, labellists = ds.make_pathlist_and_labellist(f'{config.dataset.datadir}/validate/', 10, ['noise', 'cbc'], [0, 1], snr_threshold=snr_threshold)
-    noisepaths = ds.get_noise_filepaths(f'{config.dataset.datadir}/validate/', nfile=10)
-    dataset_val = ds.LabelDataset(inputpaths, labellists, noisepaths)
+    # Validation dataset and data loader
+    valdatadir = os.path.join(config.dataset.datadir, 'validate')
+    inputpaths_val, labellists_val = ds.make_pathlist_and_labellist(valdatadir, 10)
+    noisepaths_val = ds.get_noise_filepaths(valdatadir, 10)
+    dataset_val = ds.LabelDataset(inputpaths_val, labellists_val, noisepaths_val, snrrange)
     dataloader_val = DataLoader(dataset_val, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
 
     # Create model
