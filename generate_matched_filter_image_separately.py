@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import time
 import numpy as np
 from scipy.signal.windows import tukey
 import torch
@@ -193,7 +194,13 @@ def main(args):
         template_bank['template'].append(hp_fd)
 
     # Generate matched filter images
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+    if args.max_workers < 0:
+        max_workers = os.cpu_count()
+    else:
+        max_workers = args.max_workers
+
+    tstart = time.time()
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         if args.noise:
             futures = [executor.submit(generate_noise_matchedfilter_image, os.path.join(outdir, label), n, template_bank, sp, psd_analytic) for n in range(args.offset, args.offset + ndata)]
         elif args.signal:
@@ -201,7 +208,9 @@ def main(args):
         else:
             ValueError('Something wrong with --noise and/or --signal.')
         results = [f.result() for f in futures]
-    print('Generate matched filter images: ', results)
+    # print('Generate matched filter images: ', results)
+    tend = time.time()
+    print(f'Elapsed time: {tend - tstart} [sec]')
 
 
 if __name__ == '__main__':
