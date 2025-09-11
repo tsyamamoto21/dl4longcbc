@@ -22,6 +22,7 @@ class LabelDataset(torch.utils.data.Dataset):
         self.adjust_amplitude = AdjustAmplitudeToTargetSNR(snrrange[0], snrrange[1])
         self.inject = InjectSignalIntoNoise_in_MFSense()
         # self.smear_snrmap = SmearMFImage()
+        self.normalize = NormalizeTensor()
 
     def __len__(self):
         return self.data_num
@@ -37,6 +38,7 @@ class LabelDataset(torch.utils.data.Dataset):
         out_data = self.adjust_amplitude(out_data, zn, out_label)
         out_data = self.inject(zn, out_data)
         # out_data = self.smear_snrmap(out_data)
+        out_data = self.normalize(out_data).to(torch.float32)
         return out_data, out_label
 
 

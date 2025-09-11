@@ -58,9 +58,10 @@ class MFImageCNN(nn.Module):
             layers.append(nn.MaxPool2d(kernel_size, stride, padding, dilation))
             in_height, in_width = self._get_output_size(in_height, in_width, kernel_size, stride, padding, dilation)
             in_channels = out_channels
+        layers.append(nn.AdaptiveAvgPool2d(1))
         layers.append(nn.Flatten())
         # Linear layers
-        in_features = in_channels * in_height * in_width
+        in_features = in_channels
         for i in range(config.net.num_linear_layers):
             out_features = config.net[f"linear_{i+1}_size"]
             layers.append(nn.Linear(in_features, out_features))

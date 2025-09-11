@@ -20,9 +20,10 @@ import dl4longcbc.utils as utils
 # Training loop
 # ----------------------------------------------------------------
 def main(args):
+
     # Load parameters
     config = OmegaConf.load(args.config)
-    utils.check_if_snr_schdule_is_well_configured(config)
+    snr_range_schduler = utils.SNRRangeScheduler(config)
 
     # Make model directory
     if args.dirname is None:
@@ -32,9 +33,6 @@ def main(args):
         modeldirectory = os.path.join('./data/model', config.train.experiment_name, args.dirname)
     utils.if_not_exist_makedir(modeldirectory)
     shutil.copy(args.config, modeldirectory)
-
-    config = OmegaConf.load('./config/config_train.yaml')
-    snr_range_schduler = utils.SNRRangeScheduler(config)
 
     # Set device
     print(f'Is gpu available? {torch.cuda.is_available()}')
@@ -46,21 +44,15 @@ def main(args):
     input_channel = config.net.input_channel
 
     # Get dataset
-    # snr_threshold = config.train.snr_threshold
-    snrrange = config.train.snrrange
     num_workers = config.train.num_workers
     # Training dataset and data loader
     traindatadir = os.path.join(config.dataset.directory, 'train')
     inputpaths_tr, labellists_tr = ds.make_pathlist_and_labellist(traindatadir, config.dataset.signals_tr)
     noisepaths_tr = ds.get_noise_filepaths(traindatadir, config.dataset.noises_tr)
-    # dataset_tr = ds.LabelDataset(inputpaths_tr, labellists_tr, noisepaths_tr, snrrange)
-    # dataloader_tr = DataLoader(dataset_tr, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
     # Validation dataset and data loader
     valdatadir = os.path.join(config.dataset.directory, 'validate')
     inputpaths_val, labellists_val = ds.make_pathlist_and_labellist(valdatadir, config.dataset.signals_val)
     noisepaths_val = ds.get_noise_filepaths(valdatadir, config.dataset.noises_val)
-    # dataset_val = ds.LabelDataset(inputpaths_val, labellists_val, noisepaths_val, snrrange)
-    # dataloader_val = DataLoader(dataset_val, batch_size=config.train.batchsize, shuffle=True, drop_last=True, num_workers=num_workers)
 
     # Create model
     model = instantiate_neuralnetwork(config)
