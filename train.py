@@ -124,9 +124,9 @@ def main(args):
 
     # Plot the training and validation curve
     filename = os.path.join(modeldirectory, 'learning_curve.pdf')
-    utils.plot_training_curve(trainloss_list, validateloss_list, filename)
+    utils.plot_training_curve(trainloss_list, validateloss_list, filename, ylabel='Cross entropy loss')
     filename = os.path.join(modeldirectory, 'accuracy_curve.pdf')
-    utils.plot_training_curve(trainaccuracy_list, validateaccuracy_list, filename)
+    utils.plot_training_curve(trainaccuracy_list, validateaccuracy_list, filename, ylabel='Accuracy')
 
     # Save train loss
     with open(os.path.join(modeldirectory, 'train_crossentropy_loss.txt'), 'w') as f:

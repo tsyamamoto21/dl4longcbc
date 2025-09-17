@@ -90,7 +90,7 @@ def adjust_waveform_length(hp: TimeSeries, hc: TimeSeries, tsignal: float, merge
     return hp, hc
 
 
-def plot_training_curve(trainloss, validateloss, filename):
+def plot_training_curve(trainloss, validateloss, filename, xlabel='Epoch', ylabel='Loss'):
     tr_epoch_list = [row[2] for row in trainloss]
     trloss = [row[1] for row in trainloss]
     val_epoch_list = [row[2] for row in validateloss]
@@ -98,8 +98,9 @@ def plot_training_curve(trainloss, validateloss, filename):
     plt.figure()
     plt.plot(tr_epoch_list, trloss, label='train')
     plt.plot(val_epoch_list, valloss, label='validate')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.legend()
     plt.savefig(filename)
 
 
