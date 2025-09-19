@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 import argparse
+import pickle
 import torch
 import torch.nn as nn
 from torch.nn.functional import softmax
 from torch.utils.data import DataLoader
 from torchvision.transforms import RandomCrop
 from omegaconf import OmegaConf
-# from dl4longcbc.dataset import make_pathlist_and_labellist, LabelDataset
 import dl4longcbc.dataset_test as ds
 from dl4longcbc.net import instantiate_neuralnetwork
-# from dl4longcbc.dataset import TestResult
 from dl4longcbc.utils import if_not_exist_makedir
 
 
@@ -37,17 +36,21 @@ def main(args):
     input_height = config_tr.net.input_height
     input_width = config_tr.net.input_width
     transforms = nn.Sequential(
-        RandomCrop((input_height, input_width)),
+        # RandomCrop((input_height, input_width)),
+        ds.SmearMFImage(8),
         ds.NormalizeTensor()
     )
     # num_workers = config.train.num_workers
     nb = args.batchsize
-    inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['noise'], [0], snr_threshold=None)
-    # inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['cbc'], [1], snr_threshold=None)
+    if args.noise:
+        inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['noise'], [0], snr_threshold=None)
+    elif args.cbc:
+        inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['cbc'], [1], snr_threshold=None)
     dataset = ds.LabelDataset(inputpathlist, labellist, transform=transforms)
     dataloader = DataLoader(dataset, batch_size=nb, shuffle=False, drop_last=False, num_workers=8)
     ndata = len(inputpathlist)
 
+    presoftmax_tensor = torch.empty((ndata, 2), dtype=torch.float32)
     outputtensor = torch.empty((ndata, 2), dtype=torch.float32)
     labeltensor = torch.empty((ndata,), dtype=torch.long)
     # Test model
@@ -56,9 +59,11 @@ def main(args):
         for i, data in enumerate(dataloader, 0):
             inputs, labels = data
             inputs = inputs.to(device)
-            outputs = softmax(model(inputs).cpu(), dim=1)
+            outputs_presoftmax = model(inputs).cpu()
+            outputs = softmax(outputs_presoftmax, dim=1)
             kini = idx_offset
             kend = idx_offset + len(inputs)
+            presoftmax_tensor[kini: kend] = output_presoftmax
             outputtensor[kini: kend] = outputs
             labeltensor[kini: kend] = labels
             idx_offset = kend
@@ -66,10 +71,13 @@ def main(args):
     print("Test: Test data processed.")
     result_dict = {
         "label": labeltensor,
-        "output": outputtensor
+        "output": outputtensor,
+        "presoftmax": presoftmax_tensor
     }
-    result_model = ds.TestResult(result_dict)
-    torch.save(result_model, f"{outdir}/result.pth")
+    # result_model = ds.TestResult(result_dict)
+    # torch.save(result_model, os.path.join(outdir, 'result.pth'))
+    with open(os.path.join(outdir, 'result.pkl'), 'wb') as fo:
+        pickle.dump(result_dict, fo)
     print("Test: Result saved.")
 
 
@@ -77,9 +85,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--outdir', type=str, help='output directory name')
     parser.add_argument('--modeldir', type=str, help='Directory where the trained model is saved.')
-    parser.add_argument('--datadir', type=str, help='dataset directory (including ***/test/ or noise)')
+    parser.add_argument('--datadir', type=str, help='dataset directory (including ***/test/)')
     parser.add_argument('--ndata', type=int, help='The number of test data')
     parser.add_argument('--batchsize', type=int, default=200, help='Batch size')
+    parser.add_argument('--noise', action='store_true')
+    parser.add_argument('--cbc', action='store_true')
     args = parser.parse_args()
+
+    # Check arguments consistency
+    if args.noise * args.cbc:
+        raise ValueError("noise and signal cannot be true at the same time.")
+    elif not (args.noise or args.cbc):
+        raise ValueError("Specify --noise or --signal")
 
     main(args)

@@ -1,9 +1,9 @@
 #!/bin/bash
-#PBS -l elapstim_req=02:00:00
+#PBS -l elapstim_req=00:10:00
 #PBS -q gpu
 #PBS -A ML4GW
 #PBS -j o
-#PBS -o log/mfimage_noise/log_val
+#PBS -o log/mfimage_cbc/log_test
 #PBS -t 0-4
 
 # INJECTION_FILE=data/largesnr/ds1_test_cbc/injection.hdf
@@ -25,4 +25,5 @@ apptainer exec --bind `pwd` dl4longcbc.sif ./generate_matched_filter_image.py\
     --ndata 2000\
     --config config/dataset.ini\
     --starttime $(($GPSSTART + $PBS_SUBREQNO * 24 * 2000))\
-    --offset $(($PBS_SUBREQNO * 2))
+    --offset $(($PBS_SUBREQNO * 2))\
+    --parameteronly

@@ -42,6 +42,20 @@ class NormalizeTensor(nn.Module):
         return (x - xmin) / (xmax - xmin)
 
 
+class SmearMFImage(nn.Module):
+    def __init__(self, kfilter=16):
+        super().__init__()
+        self.kfilter = kfilter
+
+    def forward(self, snrmap: torch.Tensor):
+        nc, nx, ny = snrmap.shape
+        ny_coarse = ny // self.kfilter
+        snrmap_coarse = torch.zeros((nc, nx, ny_coarse), dtype=torch.float32)
+        for i in range(ny_coarse):
+            snrmap_coarse[:, :, i] = torch.sqrt(torch.mean(snrmap[:, :, i * self.kfilter: (i + 1) * self.kfilter]**2, dim=-1))
+        return snrmap_coarse
+
+
 def make_pathlist_and_labellist(datadir, n_subset, labelnames, labels=None, snr_threshold=None):
     '''
     e.g.

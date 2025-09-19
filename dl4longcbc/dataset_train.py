@@ -164,9 +164,9 @@ class InjectSignalIntoNoise_in_MFSense(nn.Module):
 
 
 class SmearMFImage(nn.Module):
-    def __init__(self):
+    def __init__(self, kfilter=16):
         super().__init__()
-        self.kfilter = 16
+        self.kfilter = kfilter
 
     def forward(self, snrmap: torch.Tensor):
         nc, nx, ny = snrmap.shape

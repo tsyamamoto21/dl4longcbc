@@ -80,7 +80,7 @@ def create_injections(nsample: int, config: str, gps_start_time: int, injection_
     subprocess.call(cmd)
 
 
-def calculate_snr(injection_file: str, psd, sp: SignalProcessingParameters, detectors: dict):
+def calculate_snr(injection_file: str, snrlist_file: str, psd, sp: SignalProcessingParameters, detectors: dict):
     pattern = 'injections_(\\d+).hdf'
     basename = os.path.basename(injection_file)
     dirname = os.path.dirname(injection_file)
@@ -127,8 +127,8 @@ def calculate_snr(injection_file: str, psd, sp: SignalProcessingParameters, dete
             for ifo in ['H1', 'L1']:
                 storedata[idx].append(rhodict[ifo][idx])
             storedata[idx].append(rhodict['total'][idx])
-    snrlistfile = os.path.join(dirname, f'snrlist_{idx_file}.pkl')
-    with open(snrlistfile, 'wb') as f:
+    # snrlistfile = os.path.join(dirname, f'snrlist_{idx_file}.pkl')
+    with open(snrlist_file, 'wb') as f:
         pickle.dump(storedata, f)
 
 
@@ -246,31 +246,33 @@ def main(args):
         hp_fd, _ = get_fd_waveform(**params_tmp)
         template_bank['template'].append(hp_fd)
 
-    # Create injection parameters
-    gps_start_time = args.starttime
-    for n in range(ninjfile):
-        # injection_file = f'{args.outdir}/{label}/injections_{n + args.offset:d}.hdf'
-        injection_file = os.path.join(outdir, f'injections_{n + args.offset:d}.hdf')
-        if n == ninjfile - 1:
-            if ndata % NINJECTION_PER_FILE == 0:
-                nsample = NINJECTION_PER_FILE
-            else:
-                nsample = int(ndata % NINJECTION_PER_FILE)
-        else:
-            nsample = NINJECTION_PER_FILE
-        create_injections(nsample, args.config, gps_start_time, injection_file, force=args.force)
-        gps_start_time += nsample * INJECTION_TIME_STEP
+    # # Create injection parameters
+    # gps_start_time = args.starttime
+    # for n in range(ninjfile):
+    #     # injection_file = f'{args.outdir}/{label}/injections_{n + args.offset:d}.hdf'
+    #     injection_file = os.path.join(outdir, f'injections_{n + args.offset:d}.hdf')
+    #     if n == ninjfile - 1:
+    #         if ndata % NINJECTION_PER_FILE == 0:
+    #             nsample = NINJECTION_PER_FILE
+    #         else:
+    #             nsample = int(ndata % NINJECTION_PER_FILE)
+    #     else:
+    #         nsample = NINJECTION_PER_FILE
+    #     create_injections(nsample, args.config, gps_start_time, injection_file, force=args.force)
+    #     gps_start_time += nsample * INJECTION_TIME_STEP
 
     # Calculate SNR
-    snrcalculate_list = []
+    injectionfile_list = []
+    snrlistfile_list = []
     for n in range(ninjfile):
         injection_file = os.path.join(outdir, f'injections_{n + args.offset:d}.hdf')
-        snrlistfile = os.path.join(outdir, f'snrlist_{n + args.offset:d}.hdf')
-        if not os.path.exists(snrlistfile):
-            snrcalculate_list.append(n + args.offset)
-    if len(snrcalculate_list) != 0:
+        snrlist_file = os.path.join(outdir, f'snrlist_{n + args.offset:d}.pkl')
+        if not os.path.exists(snrlist_file):
+            injectionfile_list.append(injection_file)
+            snrlistfile_list.append(snrlist_file)
+    if len(snrlistfile_list) != 0:
         with concurrent.futures.ProcessPoolExecutor(max_workers=48) as executor:
-            futures = [executor.submit(calculate_snr, injection_file, psd_analytic, sp, ifodict) for n in snrcalculate_list]
+            futures = [executor.submit(calculate_snr, f_inj, f_snr, psd_analytic, sp, ifodict) for (f_inj, f_snr) in zip(injectionfile_list, snrlistfile_list)]
             results = [f.result() for f in futures]
         print('SNR calculation: ', results)
 

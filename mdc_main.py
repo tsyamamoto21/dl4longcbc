@@ -187,7 +187,7 @@ def main(args):
     # Time series property
     logging.info('Set the time series property.')
     sp = SignalProcessingParameters(
-        duration=16.0,
+        duration=128.0,
         tsegment=1.0,
         fs=2048,
         low_frequency_cutoff=20.0,

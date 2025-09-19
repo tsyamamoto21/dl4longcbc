@@ -20,7 +20,7 @@ class get_activation_layer(nn.Module):
 def instantiate_neuralnetwork(config: DictConfig):
     modeldict = {
         'cnn': MFImageCNN,
-        'cnn_archiv1': MFImageCNN_archiv01
+        'cnn_small': MFImageCNN_Small
     }
     if config.net.modelname in ['cnn']:
         return modeldict[config.net.modelname](config)
@@ -87,10 +87,10 @@ class MFImageCNN(nn.Module):
         return (Hout, Wout)
 
 
-class MFImageCNN_archiv01(nn.Module):
+class MFImageCNN_Small(nn.Module):
     # CNN model for spectrogram input
     def __init__(self, config: DictConfig):
-        super(MFImageCNN_archiv01, self).__init__()
+        super(MFImageCNN_Small, self).__init__()
         layers = []
         in_channels = config.net.input_channel
         in_height = config.net.input_height
