@@ -16,7 +16,7 @@ From: ubuntu:24.04
   . /opt/miniforge/conda_init.sh
   conda create -n dl4longcbc python=3.11
   conda activate dl4longcbc
-  conda install -c conda-forge opencv numpy scipy scikit-learn jax matplotlib jupyter h5py
+  conda install -c conda-forge opencv numpy scipy scikit-learn jax cupy matplotlib jupyter h5py
   conda install -c conda-forge lal PyCBC
   conda install pytorch torchvision torchaudio pytorch-cuda=12.1 torchinfo -c pytorch -c nvidia
   conda install -c conda-forge hydra-core torchmetrics
