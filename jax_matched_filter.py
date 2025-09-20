@@ -108,20 +108,23 @@ sp = SignalProcessingParameters(
     height_input=256
 )
 
+kappa = 1.0e22
+
 noise = noise_from_string('aLIGOZeroDetHighPower', length=sp.tlen, delta_t=sp.dt, low_frequency_cutoff=sp.low_frequency_cutoff)
 noise_td_np = noise.numpy()
-noise_td_jax = jnp.array(noise_td_np)
+noise_td_jax = jnp.array(noise_td_np * kappa)
 
 # Estimate PSD
 psd_original = noise.psd(sp.tfft, avg_method='median-mean')
 psd_pycbc = interpolate(psd_original, sp.df, sp.flen)
 psd = psd_pycbc.numpy()
-psd_jax = jnp.array(psd)
+psd_jax = jnp.array(psd * (kappa**2))
 
-ntemplist = 2 ** np.arange(2, 10)
 nptimelist = []
 jaxtimelist = []
 pycbctimelist = []
+errlist = []
+ntemplist = 2 ** np.arange(2, 10)
 for ntemp in ntemplist:
     # template bank
     mgrid = np.linspace(5, 100, ntemp, endpoint=True)
@@ -143,8 +146,18 @@ for ntemp in ntemplist:
     template_conj = template.conjugate()
     template_2 = (template * template_conj).real
 
-    template_conj_jax = jnp.array(template_conj)
-    template_2_jax = jnp.array(template_2)
+    fsample = template_pycbc[0].sample_frequencies
+    template_conj_jax = jnp.array(template_conj * kappa)
+    template_2_jax = jnp.array(template_2 * kappa**2)
+
+    # matched filter by PyCBC
+    tik = time.time()
+    matched_filter_pycbc = []
+    for n in range(ntemp):
+        matched_filter_pycbc.append(matched_filter(template_pycbc[n], noise * sp.window, psd_pycbc, sp.low_frequency_cutoff, sp.high_frequency_cutoff))
+    matched_filter_pycbc = np.array(matched_filter_pycbc)
+    tok = time.time()
+    pycbctimelist.append(tok - tik)
 
     # Matched filter by numpy
     tik = time.time()
@@ -160,15 +173,38 @@ for ntemp in ntemplist:
     tok = time.time()
     jaxtimelist.append(tok - tik)
 
-    # matched filter by PyCBC
-    tik = time.time()
-    matched_filter_pycbc = []
-    for n in range(ntemp):
-        matched_filter_pycbc.append(matched_filter(template_pycbc[n], noise * sp.window, psd_pycbc, sp.low_frequency_cutoff, sp.high_frequency_cutoff))
-    matched_filter_pycbc = np.array(matched_filter_pycbc)
-    tok = time.time()
-    pycbctimelist.append(tok - tik)
+    err = np.max(abs(matched_filter_jax - matched_filter_pycbc))
+    print(err)
+    errlist.append(err)
 
+
+# Check the matched filter results
+n = 0
+plt.figure()
+plt.plot(matched_filter_jax[n].real, label='numpy')
+plt.plot(matched_filter_pycbc[n].real, label='pycbc', linestyle='--')
+plt.xlabel('Time [s]')
+plt.ylabel('SNR time series')
+plt.xlim([5 * sp.fs, 5.3 * sp.fs])
+plt.legend()
+
+plt.figure()
+plt.plot(matched_filter_jax[n].imag, label='numpy')
+plt.plot(matched_filter_pycbc[n].imag, label='pycbc', linestyle='--')
+plt.xlabel('Time [s]')
+plt.ylabel('SNR time series')
+plt.xlim([5 * sp.fs, 5.3 * sp.fs])
+plt.legend()
+
+plt.show()
+
+
+plt.figure()
+plt.plot(errlist, "s", c="k")
+plt.xlabel('Mass (m1=m2)')
+plt.ylabel('Max of relative error in SNR')
+plt.grid()
+plt.show()
 
 plt.figure()
 plt.loglog(ntemplist, nptimelist, "s-", label="numpy")
