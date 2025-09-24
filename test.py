@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os
 import argparse
 import pickle
 import torch
@@ -63,7 +64,7 @@ def main(args):
             outputs = softmax(outputs_presoftmax, dim=1)
             kini = idx_offset
             kend = idx_offset + len(inputs)
-            presoftmax_tensor[kini: kend] = output_presoftmax
+            presoftmax_tensor[kini: kend] = outputs_presoftmax
             outputtensor[kini: kend] = outputs
             labeltensor[kini: kend] = labels
             idx_offset = kend

@@ -22,7 +22,7 @@ def instantiate_neuralnetwork(config: DictConfig):
         'cnn': MFImageCNN,
         'cnn_small': MFImageCNN_Small
     }
-    if config.net.modelname in ['cnn']:
+    if config.net.modelname in modeldict.keys():
         return modeldict[config.net.modelname](config)
     else:
         net = modeldict[config.net.modelname](weights=config.net.model_weight)

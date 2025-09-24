@@ -59,7 +59,7 @@ class SignalProcessingParameters:
         self.kappa = kappa
         self.tukey_alpha = tukey_alpha
         self.window = tukey(self.tlen, self.tukey_alpha)
-        self.window_torch = torch.from_numpy(self.window).to(dtepe=torch.float32, device='cuda')
+        self.window_torch = torch.from_numpy(self.window).to(dtype=torch.float32, device='cuda')
 
         # Image properties
         self.tnnw = tnnw
@@ -147,7 +147,7 @@ def torch_estimate_psd(strain: torch.Tensor, sp: SignalProcessingParameters) -> 
 
     # interpolate
     psd_interp = torch_interpolate(psd, size=(sp.flen,), mode='linear', align_corners=True)
-    return psd_interp, psd
+    return psd_interp
 
 
 # normalize template
@@ -187,14 +187,14 @@ def main(args):
     # Time series property
     logging.info('Set the time series property.')
     sp = SignalProcessingParameters(
-        duration=128.0,
-        # tsegment=1.0,
+        duration=16.0,
         fs=2048,
         low_frequency_cutoff=20.0,
         tukey_alpha=1.0 / 16.0,
         tfft=4.0,
-        width_input=2048,
-        height_input=256
+        tnnw=1.0,
+        height_input=256,
+        kappa=1e+22
     )
 
     # Create a template bank
@@ -285,7 +285,7 @@ def main(args):
             # Process by neural network
             logging.info(f'Start time = {start_time}: Processing SNR maps by the neural network.')
             logging.warning('!!! To be implemented !!!')
-            output = torch.empty((matched_filter_torch_unfolded.shape[0],), dtype=torch.float).normal_(0.0, 1.0)
+            output = torch.empty((matched_filter_torch_unfolded.shape[0],), dtype=torch.float32).normal_(0.0, 1.0)
 
             # Get [time, stat, var]
             logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
