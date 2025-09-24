@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os
-import gc
 import time
 import h5py
 import numpy as np
@@ -8,15 +7,12 @@ import torch
 import logging
 import argparse
 from pathlib import Path
-from scipy.signal.windows import tukey
-from lal import LIGOTimeGPS
-import pycbc.psd
+from scipy.signal.windows import tukey, hann
 from pycbc.types import load_timeseries
 from pycbc.waveform import get_fd_waveform
-from pycbc.filter import highpass, matched_filter
+# from pycbc.filter import highpass, matched_filter
 from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta
-# import concurrent.futures
-# import multiprocessing
+from torch.nn.functional import interpolate as torch_interpolate
 
 
 class MDCResultTriplet:
@@ -38,148 +34,152 @@ class MDCResultTriplet:
 
 
 class SignalProcessingParameters:
-    def __init__(self, duration, tsegment, fs, low_frequency_cutoff, tfft, tukey_alpha, width_input, height_input):
+    def __init__(self, duration, fs, low_frequency_cutoff, tfft, tukey_alpha, tnnw, height_input, kappa):
         # Signal properties
         self.duration = duration
-        self.tsegment = tsegment
         self.fs = fs
         self.low_frequency_cutoff = low_frequency_cutoff
         self.high_frequency_cutoff = self.fs / 2
         self.dt = 1.0 / self.fs
         self.df = 1.0 / self.duration
         self.tlen = int(self.duration * self.fs)
+        self.flen = self.tlen // 2 + 1
 
         # FFT for PSD estimation
-        self.tfft = tfft
-        self.toverlap = self.tfft / 2
-        self.fftlength = int(self.tfft * self.fs)
-        self.overlaplength = int(self.fftlength / 2)
+        self.tseg = tfft
+        self.seg_len = int(self.tseg * self.fs)
+        self.toverlap = self.tseg / 2
+        self.seg_overlap = int(self.toverlap * self.fs)
+        self.tstride = self.tseg - self.toverlap
+        self.seg_stride = self.seg_len - self.seg_overlap
+        self.fftwindow = torch.from_numpy(hann(self.seg_len)).to(dtype=torch.float32, device='cuda')
+        self.W = torch.mean(self.fftwindow ** 2)
 
         # MF params
+        self.kappa = kappa
         self.tukey_alpha = tukey_alpha
         self.window = tukey(self.tlen, self.tukey_alpha)
+        self.window_torch = torch.from_numpy(self.window).to(dtepe=torch.float32, device='cuda')
 
         # Image properties
-        self.width_input = width_input
+        self.tnnw = tnnw
+        self.nnw_len = int(self.fs * self.tnnw)
+        self.nnw_overlap = self.nnw_len // 2
+        self.width_input = self.nnw_len
         self.height_input = height_input
-        # self.kfilter = int(self.fs * self.tsegment / self.width_input)
-        # self.kcrop_left = int(self.fs * (self.duration / 2 - 3 * self.tsegment / 4))
-        # self.kcrop_right = int(self.fs * (self.duration / 2 + 3 * self.tsegment / 4))
-        # self.width_before_smearing = self.kcrop_right - self.kcrop_left
+
+        # Get frequency mask
+        self.fmask = self._get_frequency_mask()
+        self.fmask_torch = torch.from_numpy(self.fmask).to(dtype=torch.float32, device='cuda')
+
+    def _get_frequency_mask(self) -> np.ndarray:
+        # Get mask
+        fmask = np.zeros((self.flen))
+        kmin = int(self.low_frequency_cutoff / self.df)
+        kmax = int(self.high_frequency_cutoff / self.df)
+        if kmax > self.flen:
+            print(f"kmax ({kmax}) is larger than flen ({self.flen}).")
+        fmask[kmin: kmax] = 1.0
+        return fmask
 
 
-def make_segment_list(duration, t_seg, t_stride=None, toffset_gps=LIGOTimeGPS(0)):
-    if t_stride is None:
-        t_stride = t_seg
-    tstart = -t_stride
-    tend = tstart + t_seg
-    list_segment = []
-    while (True):
-        tstart += t_stride
-        tend += t_stride
-        list_segment.append([tstart + toffset_gps, tend + toffset_gps])
-        if tend >= duration:
-            break
-    return list_segment
-
-
-def make_psdsegment_list(duration, t_seg, t_stride=None, toffset_gps=LIGOTimeGPS(0)):
-    if t_stride is None:
-        t_stride = t_seg
-    tstart = -t_stride
-    tend = tstart + t_seg
-    flg_breakloop = False
-    list_segment = []
-    while (True):
-        tstart += t_stride
-        tend += t_stride
-        if tend >= duration:
-            tend = duration
-            tstart = tend - t_seg
-            flg_breakloop = True
-        list_segment.append([tstart + toffset_gps, tend + toffset_gps])
-        if flg_breakloop:
-            break
-    return list_segment
-
-
-def get_psdindex(mf_segment, psd_segment_list, tbuffer):
-    ti, _ = mf_segment
-    if ti < psd_segment_list[0][0]:
-        raise ValueError("tini is smaller than psd_segment_list[0][0]")
-    if psd_segment_list[-1][1] < ti:
-        raise ValueError("tini is larger than psd_segment_list[-1][1]")
-
-    for idx, psd_segment in enumerate(psd_segment_list):
-        if psd_segment[0] + tbuffer <= ti < psd_segment[1] - tbuffer:
-            break
-    return idx
-
-
-def divide_seglist_into_psdsegs(seglist, psdseglist, tbuffer):
-    previous_psd_index = -1
-    segbuffer = []
-    for i in range(len(seglist)):
-        psdidx = get_psdindex(seglist[i], psdseglist, tbuffer=tbuffer)
-        if psdidx != previous_psd_index:
-            segbuffer.append([])
-            previous_psd_index = psdidx
-        segbuffer[psdidx].append(seglist[i])
-    return segbuffer
-
-
-def get_psdlist(strain, psd_segment_list, sp: SignalProcessingParameters):
-    psdlist = []
-    avg_method = 'median-mean'
-    for psd_segment in psd_segment_list:
-        strain_psdseg = strain.crop(psd_segment[0], strain.duration - psd_segment[1])
-        psd = strain_psdseg.psd(segment_duration=sp.tfft, avg_method=avg_method)
-        psd_interp = pycbc.psd.interpolate(psd, delta_f=1.0 / strain.duration)
-        psdlist.append(psd_interp)
-    return psdlist
-
-
-def calculate_matchedfilter(seglist, strain_h1, strain_l1, psdh1_interp, psdl1_interp, template_bank: dict, sp: SignalProcessingParameters):
+def fold_tensor(strain: torch.Tensor, sp: SignalProcessingParameters) -> torch.Tensor:
     '''
-    Return: TimeSeries of SNRs
+    strain should have a size of (2, 1, N)
+    Output has a size of (nseg, 2, 1, sp.seg_len)
     '''
-    # Prepare empty tensor
-    nseg = len(seglist)
-    snrmap = torch.zeros((nseg, 2, sp.height_input, sp.width_input), dtype=torch.float32)
-    # High pass filter
-    strain_h1 = highpass(strain_h1, 15.0)
-    strain_l1 = highpass(strain_l1, 15.0)
-    # Perform template matching
-    for i in range(sp.height_input):
-        rho_h1 = abs(matched_filter(template_bank['template'][i], strain_h1 * sp.window, psd=psdh1_interp, low_frequency_cutoff=sp.low_frequency_cutoff))
-        rho_l1 = abs(matched_filter(template_bank['template'][i], strain_l1 * sp.window, psd=psdl1_interp, low_frequency_cutoff=sp.low_frequency_cutoff))
-        for idx, seg in enumerate(seglist):
-            snrmap[idx, 0, i] = torch.from_numpy(rho_h1.time_slice(seg[0], seg[1]).numpy())
-            snrmap[idx, 1, i] = torch.from_numpy(rho_l1.time_slice(seg[0], seg[1]).numpy())
+    xlen = strain.shape[2]
+    _, nseg_mod = divmod((xlen - sp.tlen // 2), sp.tlen // 2)
+    flg_add_last_part = nseg_mod != 0
 
-    # Generate GPS time list
-    gpslist = [seg[1] / 2 + seg[0] / 2 for seg in seglist]
-    return snrmap, gpslist
+    strain_folded = strain.unfold(dimension=2, size=sp.tlen, step=sp.tlen // 2).permute(2, 0, 1, 3)
+    if flg_add_last_part:
+        strain_folded = torch.cat([strain_folded, strain[:, :, -sp.tlen:].unsqueeze(0)], dim=0)
+    return strain_folded
 
 
-# # Copilot proposed
-# def process_psd_segment(idxpsd, strain_h1, strain_l1, divided_segment_list, template_bank, sp):
-#     # strain_h1 = h1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1])
-#     # strain_l1 = l1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1])
-#     psdh1 = strain_h1.psd(segment_duration=sp.tfft, avg_method='median-mean')
-#     psdh1_interp = pycbc.psd.interpolate(psdh1, delta_f=1.0 / sp.duration)
-#     psdl1 = strain_l1.psd(segment_duration=sp.tfft, avg_method='median-mean')
-#     psdl1_interp = pycbc.psd.interpolate(psdl1, delta_f=1.0 / sp.duration)
-#     snrmap, gpslist = calculate_matchedfilter(divided_segment_list[idxpsd], strain_h1, strain_l1, psdh1_interp, psdl1_interp, template_bank, sp)
-#     # 仮のニューラルネット処理
-#     output = torch.empty((len(gpslist),), dtype=torch.float).normal_(0.0, 1.0)
-#     # 結果の抽出
-#     threshold = 1.0
-#     result_triplets = []
-#     for i, stat in enumerate(output):
-#         if stat >= threshold:
-#             result_triplets.append((gpslist[i], stat, 0.5))
-#     return result_triplets
+def median_bias(ns):
+    ans = 1
+    for i in range(1, (ns - 1) // 2 + 1):
+        ans += 1.0 / (2 * i + 1) - 1.0 / (2 * i)
+    return ans
+
+
+def torch_median(inputs: torch.Tensor) -> torch.Tensor:
+    '''
+    inputs must have the shape of (2, C, N)
+    median will be taken along with the second dimension (C,)
+    '''
+    C = inputs.shape[1]
+    if C % 2 == 1:
+        # 要素数が奇数の場合、通常のtorch.medianを使用
+        return torch.median(inputs, dim=1, keepdim=True).values
+    else:
+        # 要素数が偶数の場合、中央の2つの要素の平均を計算
+        sorted_x = torch.sort(inputs, dim=1).values
+        mid_low = sorted_x[:, C // 2 - 1].view(2, 1, -1)
+        mid_high = sorted_x[:, C // 2].view(2, 1, -1)
+        return (mid_low + mid_high) / 2
+
+
+def torch_estimate_psd(strain: torch.Tensor, sp: SignalProcessingParameters) -> torch.Tensor:
+    assert strain.shape[0] == 2, "strain should include 2 channels, (L and H)"
+
+    _, nseg_mod = divmod((sp.tlen - sp.seg_overlap), sp.seg_stride)
+    kstart = nseg_mod // 2
+    kend = strain.shape[1] - nseg_mod // 2
+    strain_folded = strain[:, kstart:kend].unfold(dimension=1, size=sp.seg_len, step=sp.seg_stride)
+    nsft = strain_folded.shape[1]
+    nsft_odd = nsft // 2 + 1
+    nsft_even = nsft // 2
+    alpha_odd = median_bias(nsft_odd)
+    alpha_even = median_bias(nsft_even)
+
+    # FFT
+    strain_folded_fd = torch.fft.rfft(strain_folded * sp.fftwindow, dim=-1) * sp.dt
+
+    # Calculate PSD
+    P_all = 2.0 * torch.abs(strain_folded_fd) ** 2.0 / sp.tseg / sp.W
+    # Calculate PSD by median-mean
+    P_odd = torch_median(P_all[:, ::2])
+    P_even = torch_median(P_all[:, 1::2])
+    psd = (P_even / alpha_even + P_odd / alpha_odd) / 2.0
+
+    # interpolate
+    psd_interp = torch_interpolate(psd, size=(sp.flen,), mode='linear', align_corners=True)
+    return psd_interp, psd
+
+
+# normalize template
+def torch_sigmasq(h2_mat: torch.Tensor, psd: torch.Tensor, sp: SignalProcessingParameters) -> torch.Tensor:
+    assert h2_mat.ndim == 3, "h2_mat does not have dim of 3."
+    assert h2_mat.shape[0] == 1, f"shape error: {h2_mat.shape=}"
+    assert psd.ndim == 3, f"shape error: {psd.shape=}"
+    assert psd.shape[0] == 2, f"shape error: {psd.shape=}"
+    assert psd.shape[1] == 1, f"shape error: {psd.shape=}"
+    assert h2_mat.shape[2] == psd.shape[2], "template in frequency domain and PSD does not have the same length."
+
+    ntemp = h2_mat.shape[1]
+    return 4.0 * torch.trapezoid(h2_mat / psd, dx=sp.df, dim=-1).reshape(2, ntemp, 1)
+
+
+def torch_matched_filter(strain_td: torch.Tensor, hconj_mat: torch.Tensor, psd: torch.Tensor, norm: torch.Tensor, sp: SignalProcessingParameters) -> torch.Tensor:
+    '''
+    * hconj must be multiplied by fmask
+    * norm = sigmasq = (h|h)
+    '''
+    assert hconj_mat.ndim == 3, "hp2_mat does not have dim of 3."
+    assert hconj_mat.shape[0] == 1, f"shape error: {hconj_mat.shape=}"
+    assert strain_td.ndim == 3, "strain_td does not have dim of 3"
+    assert strain_td.shape[0] == 2, f"shape error: {strain_td.shape=}"
+    assert strain_td.shape[1] == 1, f"shape error: {strain_td.shape=}"
+    assert psd.ndim == 3, f"shape error: {psd.shape=}"
+    assert psd.shape[0] == 2, f"shape error: {psd.shape=}"
+    assert psd.shape[1] == 1, f"shape error: {psd.shape=}"
+    assert hconj_mat.shape[2] == psd.shape[2], "template in frequency domain and PSD does not have the same length."
+
+    strain_fd = torch.fft.rfft(strain_td * sp.window_torch, dim=-1) * sp.dt
+    return 4.0 * torch.fft.ifft(strain_fd * hconj_mat / psd, sp.tlen, dim=-1) / sp.dt / torch.sqrt(norm)
 
 
 def main(args):
@@ -188,7 +188,7 @@ def main(args):
     logging.info('Set the time series property.')
     sp = SignalProcessingParameters(
         duration=128.0,
-        tsegment=1.0,
+        # tsegment=1.0,
         fs=2048,
         low_frequency_cutoff=20.0,
         tukey_alpha=1.0 / 16.0,
@@ -207,8 +207,8 @@ def main(args):
     eta = 0.25
     a1 = 0.0
     a2 = 0.0
-    template_bank = {'mchirp': mclist, 'template': []}
-    template_cache = []
+    # Get templates
+    template = torch.zeros((1, ngrid_mc, sp.flen), dtype=torch.complex64, device='cuda')
     for i in range(ngrid_mc):
         mass1 = mass1_from_mchirp_eta(mclist[i], eta)
         mass2 = mass2_from_mchirp_eta(mclist[i], eta)
@@ -224,8 +224,10 @@ def main(args):
         }
 
         hp_fd, _ = get_fd_waveform(**params_tmp)
-        template_cache.append(hp_fd)
-    template_bank['template'] = template_cache
+        # template_cache.append(hp_fd)
+        template[0, i] = torch.from_numpy(hp_fd.numpy()).to(dtype=torch.complex64, device='cuda') * sp.fmask_torch * sp.kappa
+    template_conj = template.conj()
+    template_2 = (template * template_conj).real
 
     # Load a trained neural network
     logging.info('Loading the trained neural network.')
@@ -246,39 +248,44 @@ def main(args):
         h1_ts = load_timeseries(args.inputfile, group=f'H1/{start_time}')
         l1_ts = load_timeseries(args.inputfile, group=f'L1/{start_time}')
         duration = h1_ts.duration
+        start_time_gps = h1_ts.start_time
 
-        # Make segment list
-        tcut = sp.duration / 4
-        segment_list = make_segment_list(duration - 2 * tcut, sp.tsegment, sp.tsegment / 2.0, toffset_gps=tcut + h1_ts.start_time)
-        # Nsegment = len(segment_list)
+        # Into torch tensor
+        strain = torch.zeros((2, 1, len(h1_ts)), dtype=torch.float32, device='cuda')
+        strain[0, 0] = torch.from_numpy(h1_ts.numpy()).to(dtype=torch.float32, device='cuda') * sp.kappa
+        strain[1, 0] = torch.from_numpy(l1_ts.numpy()).to(dtype=torch.float32, device='cuda') * sp.kappa
 
-        # Make PSD segment list
-        psd_segment_list = make_psdsegment_list(duration, sp.duration, sp.duration / 2.0, toffset_gps=h1_ts.start_time)
-        divided_segment_list = divide_seglist_into_psdsegs(segment_list, psd_segment_list, tbuffer=tcut)
-        assert len(psd_segment_list) == len(divided_segment_list), "PSD segment list and Divided segment list do not have the same length."
-        Npsdsegs = len(psd_segment_list)
+        # Fold strain into 16s segments
+        strain_folded = fold_tensor(strain, sp)
+        Npsdsegs = strain_folded.shape[0]
 
         # Prepare empty tensors
         logging.info(f'Start time = {start_time}: Making SNR maps')
 
         tik = time.time()
         for idxpsd in range(Npsdsegs):
-            # Crop the strain
-            strain_h1 = h1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1])
-            strain_l1 = l1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1])
-            # Estimate PSDs
-            psdh1 = strain_h1.psd(segment_duration=sp.tfft, avg_method='median-mean')
-            psdh1_interp = pycbc.psd.interpolate(psdh1, delta_f=1.0 / sp.duration)
-            psdl1 = strain_l1.psd(segment_duration=sp.tfft, avg_method='median-mean')
-            psdl1_interp = pycbc.psd.interpolate(psdl1, delta_f=1.0 / sp.duration)
+            # Estimate PSD
+            psd = torch_estimate_psd(strain_folded[idxpsd, :, 0], sp)
+            # Normalization factor
+            sigmasq_torch = torch_sigmasq(template_2, psd, sp)
             # Matched filter
-            snrmap, gpslist = calculate_matchedfilter(divided_segment_list[idxpsd], strain_h1, strain_l1, psdh1_interp, psdl1_interp, template_bank, sp)
-            # snrmap, gpslist = calculate_matchedfilter_parallelized(divided_segment_list[idxpsd], strain_h1, strain_l1, psdh1_interp, psdl1_interp, template_bank, sp)
+            matched_filter_torch = torch_matched_filter(strain_folded[idxpsd], template_conj, psd, sigmasq_torch, sp)
+
+            # Process MF outputs by neural network
+            if idxpsd == Npsdsegs - 1:
+                kstart = sp.tlen // 4
+                kend = sp.tlen * 3 // 4 + sp.nnw_overlap
+                mfwindow_tstart = start_time_gps + idxpsd * sp.tstride - (duration % sp.tstride)
+            else:
+                kstart = sp.tlen // 4
+                kend = sp.tlen * 3 // 4 + sp.nnw_overlap
+                mfwindow_tstart = start_time_gps + idxpsd * sp.tstride
+            matched_filter_torch_unfolded = matched_filter_torch[:, :, kstart: kend].unfold(dimension=2, size=sp.nnw_len, step=sp.nnw_overlap).permute(2, 0, 1, 3)
 
             # Process by neural network
             logging.info(f'Start time = {start_time}: Processing SNR maps by the neural network.')
             logging.warning('!!! To be implemented !!!')
-            output = torch.empty((len(gpslist),), dtype=torch.float).normal_(0.0, 1.0)
+            output = torch.empty((matched_filter_torch_unfolded.shape[0],), dtype=torch.float).normal_(0.0, 1.0)
 
             # Get [time, stat, var]
             logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
@@ -286,40 +293,20 @@ def main(args):
             threshold = 1.0
             for i, stat in enumerate(output):
                 if stat >= threshold:
-                    mdc_results.add(gpslist[i], stat, 0.5)
+                    mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
 
-#         logging.info(f'Start time = {start_time}: Slicing strain data')
-#         sliced_strain_h1 = [h1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1]) for idxpsd in range(Npsdsegs)]
-#         sliced_strain_l1 = [l1_ts.time_slice(psd_segment_list[idxpsd][0], psd_segment_list[idxpsd][1]) for idxpsd in range(Npsdsegs)]
-# 
-#         logging.info(f'Start time = {start_time}: Processing sliced data in parallel')
-#         with concurrent.futures.ProcessPoolExecutor() as executor:
-#             futures = [
-#                 executor.submit(
-#                     process_psd_segment, idxpsd, sliced_strain_h1[idxpsd], sliced_strain_l1[idxpsd],
-#                     divided_segment_list, template_bank, sp
-#                 )
-#                 for idxpsd in range(Npsdsegs)
-#             ]
-#             for future in concurrent.futures.as_completed(futures):
-#                 result_triplets = future.result()
-#                 for t, s, v in result_triplets:
-#                     mdc_results.add(t, s, v)
         tok = time.time()
         break
     logging.info(f'Elapsed time {tok - tik} seconds for {Npsdsegs} psdsegments')
-#     gc.collect()
 
     # Save result triples
-    logging.info(f'Saving result triples')
+    logging.info('Saving result triples')
     logging.warning('!!! To be implemented !!!')
     mdc_results.dump(args.outputfile)
-#     gc.collect()
     logging.info('Result saved')
 
 
 if __name__ == '__main__':
-    # multiprocessing.set_start_method('spawn')  # ここで呼ぶ
     parser = argparse.ArgumentParser(description='Process MDC data by neural network.')
     parser.add_argument('-i', '--inputfile', type=str, required=True, help='hdf5 file of strain data.')
     parser.add_argument('-o', '--outputfile', type=str, required=True, help='hdf5 file to be output.')
@@ -335,6 +322,3 @@ if __name__ == '__main__':
     assert Path(args.outputfile).suffix == '.hdf', f"Output file must be an hdf5 file. (Given {args.outputfile})"
 
     main(args)
-    # # Kludge solution
-    # import sys
-    # sys.exit(0)
