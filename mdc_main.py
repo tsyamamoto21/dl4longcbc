@@ -21,7 +21,7 @@ class MDCResultTriplet:
         self.time = []
         self.stat = []
         self.var = []
-    
+
     def __len__(self):
         return len(self.time)
 
@@ -139,7 +139,7 @@ def fold_tensor(strain: torch.Tensor, sp: SignalProcessingParameters) -> torch.T
     return strain_folded
 
 
-def median_bias(ns):
+def median_bias(ns: int) -> float:
     ans = 1
     for i in range(1, (ns - 1) // 2 + 1):
         ans += 1.0 / (2 * i + 1) - 1.0 / (2 * i)

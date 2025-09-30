@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import softmax
 from torch.utils.data import DataLoader
-from torchvision.transforms import RandomCrop
 from omegaconf import OmegaConf
 import dl4longcbc.dataset_test as ds
 from dl4longcbc.net import instantiate_neuralnetwork
@@ -40,8 +39,6 @@ def main(args):
     transforms.append(ds.NormalizeTensor())
 
     # Make data loader
-    input_height = config_tr.net.input_height
-    input_width = config_tr.net.input_width
     nb = args.batchsize
     if args.noise:
         inputpathlist, labellist = ds.make_pathlist_and_labellist(f'{datadir}/', 10, ['noise'], [0], snr_threshold=None)
