@@ -2,6 +2,7 @@
 import os
 import time
 import h5py
+import pickle
 import numpy as np
 from scipy.signal.windows import tukey, hann
 import logging
@@ -270,10 +271,6 @@ def main(args):
     template_conj = template.conj()
     template_2 = (template * template_conj).real
 
-    # Load a trained neural network
-    logging.info('Loading the trained neural network.')
-    logging.warning('!!! To be implemented !!!')
-
     # Get segments
     logging.info('Get segments')
     with h5py.File(args.inputfile, 'r') as file:
@@ -281,8 +278,12 @@ def main(args):
     list_start_time.sort()
 
     # Load trained netrowk
+    logging.info('Loading the trained neural network.')
     config_file = os.path.join(args.modeldir, 'config_train.yaml')
     model_file = os.path.join(args.modeldir, 'model.pth')
+    stat_file = os.path.join(args.modeldir, 'noise_statistics.pkl')
+    with open(stat_file, 'wb') as fo:
+        threshold = pickle.load(fo)['threshold']
     config_nn = OmegaConf.load(config_file)
     model = instantiate_neuralnetwork(config_nn)
     model.load_state_dict(torch.load(model_file, weights_only=True))
@@ -340,7 +341,6 @@ def main(args):
             # Get [time, stat, var]
             logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
             stat_all = output[:, 1] - output[:, 0]
-            threshold = 1.0
             for i, stat in enumerate(stat_all):
                 if stat >= threshold:
                     mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
@@ -372,5 +372,6 @@ if __name__ == '__main__':
     assert os.path.exists(args.inputfile), f"Input file {args.inputfile} does not exist."
     assert Path(args.inputfile).suffix == '.hdf', f"Input file must be an hdf5 file. (Given {args.inputfile})"
     assert Path(args.outputfile).suffix == '.hdf', f"Output file must be an hdf5 file. (Given {args.outputfile})"
+    assert os.path.exists(args.modeldir), f"Model directory {args.modeldir} does not exist."
 
     main(args)
