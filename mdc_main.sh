@@ -11,6 +11,7 @@ set -x
 module load cuda/12.1.0
 cd $PBS_O_WORKDIR
 apptainer exec --nv --bind `pwd` dl4longcbc.sif ./mdc_main.py\
-    -i data/mdc/ds1/foreground.hdf\
-    -o data/mdc/testoutput.hdf
+    -i data/mdc/ds1_demo/foreground.hdf\
+    -o data/mdc/testoutput.hdf\
+    --modeldir data/model/model_250912/smearing_ksize5-5_channels64_relu/
 

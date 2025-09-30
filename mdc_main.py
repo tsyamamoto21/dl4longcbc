@@ -346,7 +346,6 @@ def main(args):
                     mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
 
         tok = time.time()
-        break
     logging.info(f'Elapsed time {tok - tik} seconds for {Npsdsegs} psdsegments')
 
     # Save result triples
