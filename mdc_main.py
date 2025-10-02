@@ -15,6 +15,7 @@ from pycbc.types import load_timeseries
 from pycbc.waveform import get_fd_waveform
 from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta
 from dl4longcbc.net import instantiate_neuralnetwork
+import dl4longcbc.dataset_test as ds
 
 
 class MDCResultTriplet:
@@ -282,7 +283,7 @@ def main(args):
     config_file = os.path.join(args.modeldir, 'config_train.yaml')
     model_file = os.path.join(args.modeldir, 'model.pth')
     stat_file = os.path.join(args.modeldir, 'noise_statistics.pkl')
-    with open(stat_file, 'wb') as fo:
+    with open(stat_file, 'rb') as fo:
         threshold = pickle.load(fo)['threshold']
     config_nn = OmegaConf.load(config_file)
     model = instantiate_neuralnetwork(config_nn)
@@ -290,12 +291,20 @@ def main(args):
     model = model.to('cuda')
     model.eval()
 
+    # Preprocessing
+    normalizing = ds.NormalizeTensor()
+    if config_nn.train.smearing_kernel is None:
+        transform_tensors = lambda x: normalizing(x)
+    else:
+        smearing = ds.SmearMFImage(config_nn.train.smearing_kernel)
+        transform_tensors = lambda x: normalizing(smearing(x))
+
     # Prepare result container
     mdc_results = MDCResultTriplet()
 
     for start_time in list_start_time:
         # Load strains
-        logging.info(f'Start time = {start_time}: Loading strains')
+        # logging.info(f'Start time = {start_time}: Loading strains')
         h1_ts = load_timeseries(args.inputfile, group=f'H1/{start_time}')
         l1_ts = load_timeseries(args.inputfile, group=f'L1/{start_time}')
         duration = h1_ts.duration
@@ -311,7 +320,7 @@ def main(args):
         Npsdsegs = strain_folded.shape[0]
 
         # Prepare empty tensors
-        logging.info(f'Start time = {start_time}: Making SNR maps')
+        # logging.info(f'Start time = {start_time}: Making SNR maps')
 
         tik = time.time()
         for idxpsd in range(Npsdsegs):
@@ -334,13 +343,14 @@ def main(args):
             matched_filter_torch_unfolded = matched_filter_torch[:, :, kstart: kend].unfold(dimension=2, size=sp.nnw_len, step=sp.nnw_overlap).permute(2, 0, 1, 3)
 
             # Process by neural network
-            logging.info(f'Start time = {start_time}: Processing SNR maps by the neural network.')
+            # logging.info(f'Start time = {start_time}: Processing SNR maps by the neural network.')
             with torch.no_grad():
-                output = model(matched_filter_torch_unfolded).to('cpu')
+                inputs = torch.vmap(transform_tensors)(torch.abs(matched_filter_torch_unfolded))
+                outputs = model(inputs).to('cpu')
 
             # Get [time, stat, var]
-            logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
-            stat_all = output[:, 1] - output[:, 0]
+            # logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
+            stat_all = outputs[:, 1] - outputs[:, 0]
             for i, stat in enumerate(stat_all):
                 if stat >= threshold:
                     mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)

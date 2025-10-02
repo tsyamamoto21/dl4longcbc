@@ -48,6 +48,25 @@ class SmearMFImage(nn.Module):
         self.kfilter = kfilter
 
     def forward(self, snrmap: torch.Tensor):
+        # 1. Get original shape
+        nc, nx, ny = snrmap.shape
+
+        # 2. Check if the last dimension is divisible by kfilter
+        if ny % self.kfilter != 0:
+            raise ValueError(f"The last dimension of the input tensor ({ny}) "
+                             f"must be divisible by kfilter ({self.kfilter}).")
+
+        ny_coarse = ny // self.kfilter
+
+        # 3. Reshape to group elements for pooling
+        # Shape becomes: (nc, nx, ny_coarse, kfilter)
+        snrmap_reshaped = snrmap.view(nc, nx, ny_coarse, self.kfilter)
+
+        # 4. Perform RMS pooling on the new last dimension (the one of size kfilter)
+        snrmap_coarse = torch.sqrt(torch.mean(snrmap_reshaped**2, dim=-1))
+        return snrmap_coarse
+    
+    def _old_forward(self, snrmap: torch.Tensor):
         nc, nx, ny = snrmap.shape
         ny_coarse = ny // self.kfilter
         snrmap_coarse = torch.zeros((nc, nx, ny_coarse), dtype=torch.float32)
