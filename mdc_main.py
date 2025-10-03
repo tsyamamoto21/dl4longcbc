@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 import torch
 from torch.nn.functional import interpolate as torch_interpolate
-from omegaconf import OmegaConf
+# from omegaconf import OmegaConf
 from pycbc.types import load_timeseries
 from pycbc.waveform import get_fd_waveform
 from pycbc.conversions import mass1_from_mchirp_eta, mass2_from_mchirp_eta
@@ -358,11 +358,14 @@ def main(args):
         tok = time.time()
     logging.info(f'Elapsed time {tok - tik} seconds for {Npsdsegs} psdsegments')
 
-    # Save result triples
-    logging.info('Clustering the triggers.')
-    mdc_results_clustered = mdc_results.cluster_triggers()
+    # # Save result triples
+    # logging.info('Clustering the triggers.')
+    # mdc_results_clustered = mdc_results.cluster_triggers()
+    # logging.info('Saving result triples')
+    # mdc_results_clustered.dump(args.outputfile)
+
     logging.info('Saving result triples')
-    mdc_results_clustered.dump(args.outputfile)
+    mdc_results.dump(args.outputfile)
     logging.info('Result saved')
 
 
