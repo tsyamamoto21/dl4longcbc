@@ -2,7 +2,7 @@
 #------- qsub option -------
 #PBS -q gpu
 #PBS -A ML4GW
-#PBS -l elapstim_req=10:00:00
+#PBS -l elapstim_req=03:00:00
 #PBS -j o
 #PBS -o log/mdc_main.log
 
@@ -11,7 +11,7 @@ set -x
 module load cuda/12.1.0
 cd $PBS_O_WORKDIR
 
-MODELDIRECTORY=data/model/model_250912/smearingkernel2_ksize5-5_channels64_relu/
+MODELDIRECTORY=data/model/model_250912/smearing_ksize5-5_channels64_relu/
 OUTPUTDIRECTORY=$MODELDIRECTORY/ds1/
 mkdir $OUTPUTDIRECTORY
 
