@@ -5,13 +5,13 @@
 #PBS -o log/generate_injections.out
 #PBS -e log/generate_injections.out
 
-DATASETTYPE=4
+DATASETTYPE=1
 SEEDNUMBER=2514409456
-OUTPUTDIR=data/mdc/ds4/
+OUTPUTDIR=data/mdc/ds1_largesnr/
 OUTPUT_INJECTION_FILE=$OUTPUTDIR/injection.hdf
 OUTPUT_FOREGROUND_FILE=$OUTPUTDIR/foreground.hdf
 OUTPUT_BACKGROUND_FILE=$OUTPUTDIR/background.hdf
-DURATION=2592000
+DURATION=25920
 
 set -x
 #module load cuda/12.1.0

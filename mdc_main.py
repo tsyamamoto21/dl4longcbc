@@ -352,8 +352,9 @@ def main(args):
             # logging.info(f'Start time = {start_time}: Summarizing into [time, stat, var] triplets.')
             stat_all = outputs[:, 1] - outputs[:, 0]
             for i, stat in enumerate(stat_all):
-                if stat >= threshold:
-                    mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
+                mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
+                # if stat >= threshold:
+                #     mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
 
         tok = time.time()
     logging.info(f'Elapsed time {tok - tik} seconds for {Npsdsegs} psdsegments')
