@@ -39,6 +39,12 @@ class MDCResultTriplet:
             f.create_dataset("stat", data=np.array(self.stat), compression="gzip")
             f.create_dataset("var", data=np.array(self.var), compression="gzip")
 
+    def sort_triggers_in_time(self):
+        ksort = np.argsort(self.time)
+        self.time = [self.time[k] for k in ksort]
+        self.stat = [self.stat[k] for k in ksort]
+        self.var = [self.var[k] for k in ksort]
+
     def cluster_triggers(self):
         if len(self) < 2:
             print("There is no triggers to be clustered.")
@@ -308,6 +314,8 @@ def main(args):
         # logging.info(f'Start time = {start_time}: Loading strains')
         h1_ts = load_timeseries(args.inputfile, group=f'H1/{start_time}')
         l1_ts = load_timeseries(args.inputfile, group=f'L1/{start_time}')
+        h1_ts = highpass(h1_ts, 15.0)
+        l1_ts = highpass(l1_ts, 15.0)
         duration = h1_ts.duration
         start_time_gps = h1_ts.start_time
 
@@ -354,8 +362,8 @@ def main(args):
             stat_all = outputs[:, 1] - outputs[:, 0]
             for i, stat in enumerate(stat_all):
                 mdc_results.add(mfwindow_tstart + sp.duration // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
-                # if stat >= threshold:
-                #     mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
+                if stat >= threshold:
+                    mdc_results.add(mfwindow_tstart + sp.tseg // 4 + (i + 1) * sp.tnnw / 2, stat, 0.5)
 
         tok = time.time()
     logging.info(f'Elapsed time {tok - tik} seconds for {Npsdsegs} psdsegments')
@@ -367,6 +375,8 @@ def main(args):
     # mdc_results_clustered.dump(args.outputfile)
 
     logging.info('Saving result triples')
+    mdc_results.sort_triggers_in_time()
+    mdc_results = mdc_results.cluster_triggers()
     mdc_results.dump(args.outputfile)
     logging.info('Result saved')
 
