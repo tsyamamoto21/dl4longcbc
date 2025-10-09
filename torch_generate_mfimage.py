@@ -208,7 +208,7 @@ def generate_signal_matchedfilter_image(outdir: str, fileidx: int, template_conj
     kstart = sp.tlen // 4
     kend = sp.tlen * 3 // 4
     torchfilename = os.path.join(outdir, f'signalmf_{fileidx:d}.pth')
-    torch.save(matched_filter_torch[:, :, kstart: kend], torchfilename)
+    torch.save(matched_filter_torch[:, :, kstart: kend].to('cpu'), torchfilename)
 
 
 def generate_noise_matchedfilter_image(outdir: str, fileidx: int, template_conj: torch.Tensor, template_2: torch.Tensor, sp: SignalProcessingParameters, psd):
@@ -230,7 +230,7 @@ def generate_noise_matchedfilter_image(outdir: str, fileidx: int, template_conj:
     kstart = sp.tlen // 4
     kend = sp.tlen * 3 // 4
     torchfilename = os.path.join(outdir, f'noisemf_{fileidx:d}.pth')
-    torch.save(matched_filter_torch[:, kstart: kend], torchfilename)
+    torch.save(matched_filter_torch[:, kstart: kend].to('cpu'), torchfilename)
 
 
 def main(args):
