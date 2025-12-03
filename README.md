@@ -25,11 +25,41 @@ When you generate the validation data, please replace `train` with `validate`.
 
 ## generate test data
 
+Noise dataset
+```
+./generate_matched_filter_image.py --outdir <path_to_dataset_directory>/test/ --ndata 10000 --config config/dataset.ini --starttime 1284169603 --noiseonly
+```
+
+CBC dataset
+```
+./generate_matched_filter_image.py --outdir <path_to_dataset_directory>/test/ --ndata 10000 --config config/dataset.ini --starttime 1284169603
+```
 
 ## train the CNN
 
+Before running `./train.py`, the training configuration file must be prepared at `./config/config_train.yaml`. 
+
+```
+./train.py --dirname <directory_name>
+```
+
+You can change the path to the config file. In that case, you specify the option `--config <path to config file>`.
+
+The trained model and its relevant information files are stored at the directory `./data/model/<experiment>/<directory_name>`. Here, `<experiment>` is specified in the configuration file.
 
 ## test the CNN
+
+Test with noise dataset
+```
+./test.py --outdir=<path_to_cnn_model>/test_noise/ --modeldir=<path_to_cnn_model> --datadir=<path_to_dataset_directory>/test/ --ndata=10000 --batchsize=100 --noise
+```
+
+Test with CBC dataset
+```
+./test.py --outdir=<path_to_cnn_model>/test_cbc/ --modeldir=<path_to_cnn_model> --datadir=<path_to_dataset_directory>/test/ --ndata=10000 --batchsize=100 --cbc
+```
+
+Notebook `XXX` is used for analyzing the test results.
 
 
 ## generate MDC dataset
