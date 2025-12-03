@@ -13,12 +13,12 @@ Create container
 
 Pure noise dataset
 ```
-./torch_generate_mfimage.py --outdir ./data/dataset_250911/train/ --ndata 11250 --noise --offset 1250
+./torch_generate_mfimage.py --outdir <path_to_dataset_directory>/train/ --ndata 1250 --noise
 ```
 
-Pure noise dataset
+Pure CBC dataset
 ```
-./torch_generate_mfimage.py --outdir ./data/dataset_250911/train/ --ndata 11250 --noise --offset 1250
+./torch_generate_mfimage.py --outdir <path_to_dataset_directory>/train/ --ndata 10000 --signal
 ```
 
 When you generate the validation data, please replace `train` with `validate`.
