@@ -2,7 +2,7 @@
 
 - paper
 
-# Usage
+# Install
 
 ## Clone
 
@@ -13,10 +13,27 @@ git clone --recursive https://github.com/tsyamamoto21/dl4longcbc.git
 This repository uses `mdc` repository  [link](https://github.com/gwastro/ml-mock-data-challenge-1/tree/6d5e62fdf866126cde53c10e198d8897731fb841).
 So, you need to run `git clone` with recursive option.
 
-## Environment
+## apptainer and environment
 
-Create container
-``` apptainer XXX```
+You use a def file `dl4longcbc.def` to create the container.
+Build the container by
+
+```
+nohup apptainer build dl4longcbc.sif dl4longcbc.def > build.log 2>&1 & disown
+```
+
+In Pegasus cluster, we use `nohup` to prevent the code stopping for some reason.
+If the container build successfully completed, you initiate the container by
+
+```
+apptainer shell --nv --bind `pwd` dl4longcbc.sif
+```
+
+The option `--nv` enables you to use GPU in the container.
+
+
+
+# Usage
 
 ## generate training data
 
@@ -119,3 +136,9 @@ Evaluate the results
 ## Compare the sensitivities
 
 Run the notebook `XXX`
+
+
+# Others
+
+- There are several shell scripts. They are used in the Pegasus, computational facility of Tsukuba University.
+- 
