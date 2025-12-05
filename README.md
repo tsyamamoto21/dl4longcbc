@@ -19,10 +19,14 @@ You use a def file `dl4longcbc.def` to create the container.
 Build the container by
 
 ```
+apptainer build dl4longcbc.sif dl4longcbc.def
+```
+It may take an hour, so if necessary you can use `nohup` 
+```
 nohup apptainer build dl4longcbc.sif dl4longcbc.def > build.log 2>&1 & disown
 ```
+In Pegasus cluster, we use `nohup` to prevent the code stopping.
 
-In Pegasus cluster, we use `nohup` to prevent the code stopping for some reason.
 If the container build successfully completed, you initiate the container by
 
 ```
