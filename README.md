@@ -85,7 +85,7 @@ Test with CBC dataset
 ./test.py --outdir=<path_to_cnn_model>/test_cbc/ --modeldir=<path_to_cnn_model> --datadir=<path_to_dataset_directory>/test/ --ndata=10000 --batchsize=100 --cbc
 ```
 
-Notebook `XXX` is used for analyzing the test results.
+Notebook `analyze_test_result.ipynb` is used for analyzing the test results (plot histogram of the statistics, generate pdet vs FAP plot, and calculate AUC).
 
 
 ## generate MDC dataset
@@ -135,7 +135,8 @@ Evaluate the results
 
 ## Compare the sensitivities
 
-Run the notebook `XXX`
+- Download MLGWSC-1's results from Zenodo.
+- Run the notebook `check_mdcmain_output.ipynb`
 
 
 # Others
