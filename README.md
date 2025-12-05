@@ -4,6 +4,15 @@
 
 # Usage
 
+## Clone
+
+```
+git clone --recursive https://github.com/tsyamamoto21/dl4longcbc.git
+```
+
+This repository uses `mdc` repository  [link](https://github.com/gwastro/ml-mock-data-challenge-1/tree/6d5e62fdf866126cde53c10e198d8897731fb841).
+So, you need to run `git clone` with recursive option.
+
 ## Environment
 
 Create container
