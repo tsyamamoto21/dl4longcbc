@@ -17,6 +17,9 @@ set -x
 #module load cuda/12.1.0
 
 cd $PBS_O_WORKDIR
+if [ ! -d  $OUTPUTDIR]; then
+	mkdir $OUTPUTDIR
+fi
 apptainer exec --nv --bind /home,/mnt dl4longcbc.sif ./mdc/generate_data.py\
 	-d $DATASETTYPE\
     -i $OUTPUT_INJECTION_FILE\
