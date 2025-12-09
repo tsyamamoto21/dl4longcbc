@@ -7,7 +7,7 @@
 ## Clone
 
 ```
-git clone --recursive https://github.com/tsyamamoto21/gw_hybridmfcnn.git
+git clone --recursive https://github.com/tsyamamoto21/gw-hybridmfcnn-stellarmassbbh.git
 ```
 
 This repository uses `mdc` repository  [link](https://github.com/gwastro/ml-mock-data-challenge-1/tree/6d5e62fdf866126cde53c10e198d8897731fb841).
