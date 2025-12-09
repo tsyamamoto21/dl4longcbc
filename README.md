@@ -7,7 +7,7 @@
 ## Clone
 
 ```
-git clone --recursive https://github.com/tsyamamoto21/dl4longcbc.git
+git clone --recursive https://github.com/tsyamamoto21/gw_hybridmfcnn.git
 ```
 
 This repository uses `mdc` repository  [link](https://github.com/gwastro/ml-mock-data-challenge-1/tree/6d5e62fdf866126cde53c10e198d8897731fb841).
@@ -21,22 +21,22 @@ After cloning the repository, run the setup script
 
 ## apptainer and environment
 
-You use a def file `dl4longcbc.def` to create the container.
+You use a def file `gw_hybridmfcnn.def` to create the container.
 Build the container by
 
 ```
-apptainer build dl4longcbc.sif dl4longcbc.def
+apptainer build gw_hybridmfcnn.sif gw_hybridmfcnn.def
 ```
 It may take an hour, so if necessary you can use `nohup` 
 ```
-nohup apptainer build dl4longcbc.sif dl4longcbc.def > build.log 2>&1 & disown
+nohup apptainer build gw_hybridmfcnn.sif gw_hybridmfcnn.def > build.log 2>&1 & disown
 ```
 In Pegasus cluster, we use `nohup` to prevent the code stopping.
 
 If the container build successfully completed, you initiate the container by
 
 ```
-apptainer shell --nv --bind `pwd` dl4longcbc.sif
+apptainer shell --nv --bind `pwd` gw_hybridmfcnn.sif
 ```
 
 The option `--nv` enables you to use GPU in the container.
