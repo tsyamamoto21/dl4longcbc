@@ -186,7 +186,10 @@ def main(args):
     outdir_root = args.outdir
     if_not_exist_makedir(outdir_root)
     ndata = args.ndata
-    ninjfile = int(math.ceil(ndata / NINJECTION_PER_FILE))
+    if ndata >= NINJECTION_PER_FILE:
+        ninjfile = int(math.ceil(ndata / NINJECTION_PER_FILE))
+    else:
+        ninjfile = 1
     print(f'{ninjfile=}')
     if args.noiseonly:
         label = 'noise'
