@@ -102,7 +102,7 @@ Notebook `analyze_test_result.ipynb` is used for analyzing the test results (plo
 
 ```
 ./mdc/generate_data.py\
-	-d ds1\
+	-d 1\
     -i <mdc_data_directory>/injection.hdf\
     -f <mdc_data_directory>/foreground.hdf\
     -b <mdc_data_directory>/background.hdf\
