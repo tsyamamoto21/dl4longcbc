@@ -2,7 +2,7 @@
 
 *"Hybrid algorithm combining matched filtering and convolutional neural networks for searching gravitational waves from binary black hole mergers"*,  
 **Takahiro S. Yamamoto**, Kipp Cannon, Hayato Motohashi, and Hiroaki W. H. Tahara  
-[arXiv: 2512.12399](https://arxiv.org/abs/2512.12399){:target="_blank"}
+[arXiv: 2512.12399](https://arxiv.org/abs/2512.12399)
 
 # Install
 
